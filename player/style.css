@@ -617,3 +617,69 @@ main {
   .actions .btn { flex: 1 1 auto; }
   .books { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 }
+
+/* ---------- Speed controls ---------- */
+
+.speed-row { display: flex; align-items: center; gap: 8px; }
+.speed-row input[type="range"] { flex: 1; min-width: 0; height: 28px; accent-color: var(--accent); }
+.speed-value { margin-left: 6px; color: var(--accent); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.step-btn {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.step-btn:hover { background: var(--surface-2); }
+
+.speed-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.speed-presets button {
+  min-height: 34px;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.speed-presets button:hover { background: var(--surface-2); }
+
+.speed-wrap { position: relative; }
+
+.speed-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  z-index: 10;
+  display: grid;
+  gap: 10px;
+  width: min(320px, calc(100vw - 32px));
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  transform: translateX(-50%);
+  text-align: left;
+}
+.speed-panel label { font-weight: 500; }
+.speed-panel .speed-presets { justify-content: space-between; }
+
+@media (max-width: 560px) {
+  .speed-panel {
+    position: fixed;
+    top: auto;
+    bottom: 16px;
+    left: 16px;
+    right: 16px;
+    z-index: 25;
+    width: auto;
+    transform: none;
+  }
+}

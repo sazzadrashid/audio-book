@@ -8,7 +8,6 @@ const DB_NAME = 'audio-book';
 const DB_VERSION = 2;
 const SKIP_BACK = 15;
 const SKIP_FORWARD = 30;
-const SPEEDS = [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
 const SAVE_EVERY_MS = 5000;
 const AUDIO_EXT = /\.(mp3|m4a|m4b|aac|ogg|oga|opus|wav|flac|webm)$/i;
 const COVER_NAME = /^(cover|folder|front)\.(jpe?g|png|webp)$/i;
@@ -579,7 +578,7 @@ async function renderPlayerHeader() {
     fallback.style.background = colorFor(current.title);
     fallback.textContent = initialOf(current.title);
   }
-  $('speed').textContent = `${current.rate}×`;
+  showRate();
 }
 
 function renderChapters() {
@@ -722,14 +721,51 @@ function prevChapter() {
   }
 }
 
-function cycleSpeed() {
+function formatRate(rate) {
+  return `${Number(rate.toFixed(2))}×`;
+}
+
+function showRate() {
+  const rate = current?.rate || 1;
+  $('speed').textContent = formatRate(rate);
+  $('speed-value').textContent = formatRate(rate);
+  $('speed-range').value = rate;
+}
+
+function setRate(rate) {
   if (!current) return;
-  const i = SPEEDS.indexOf(current.rate);
-  current.rate = SPEEDS[(i + 1) % SPEEDS.length];
-  audio.playbackRate = current.rate;
-  audio.defaultPlaybackRate = current.rate;
-  $('speed').textContent = `${current.rate}×`;
+  current.rate = rate;
+  audio.playbackRate = rate;
+  audio.defaultPlaybackRate = rate;
+  showRate();
+  updateTimes();
   saveProgress();
+}
+
+function toggleSpeedPanel(open = $('speed-panel').hidden) {
+  $('speed-panel').hidden = !open;
+  $('speed').setAttribute('aria-expanded', String(open));
+}
+
+// Speed sliders: the − / + buttons move them in small steps, and preset buttons jump to a value.
+function setupSpeedControls() {
+  const round = x => Math.round(x * 100) / 100;
+  const set = (input, value) => {
+    input.value = Math.min(Number(input.max), Math.max(Number(input.min), round(value)));
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  };
+  for (const btn of document.querySelectorAll('.step-btn')) {
+    btn.addEventListener('click', () => {
+      const input = $(btn.dataset.for);
+      set(input, Number(input.value) + Number(btn.dataset.step));
+    });
+  }
+  for (const group of document.querySelectorAll('.speed-presets')) {
+    group.addEventListener('click', e => {
+      const btn = e.target.closest('[data-rate]');
+      if (btn) set($(group.dataset.for), Number(btn.dataset.rate));
+    });
+  }
 }
 
 function updateTimes() {
@@ -886,7 +922,15 @@ $('rewind').addEventListener('click', () => skip(-SKIP_BACK));
 $('forward').addEventListener('click', () => skip(SKIP_FORWARD));
 $('prev').addEventListener('click', prevChapter);
 $('next').addEventListener('click', () => nextChapter());
-$('speed').addEventListener('click', cycleSpeed);
+$('speed').addEventListener('click', () => toggleSpeedPanel());
+$('speed-range').addEventListener('input', e => setRate(Number(e.target.value)));
+document.addEventListener('click', e => {
+  if (!$('speed-panel').hidden && !e.target.closest('.speed-wrap')) toggleSpeedPanel(false);
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && !$('speed-panel').hidden) toggleSpeedPanel(false);
+});
+setupSpeedControls();
 $('sleep').addEventListener('change', e => setSleep(e.target.value));
 
 $('seek').addEventListener('input', () => {

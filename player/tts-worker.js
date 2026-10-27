@@ -26,6 +26,20 @@ const MP3_KBPS = 48; // plenty for speech, about 21 MB per hour
 // The phonemizer leaks a little memory on every call and crashes after a few dozen, so it is
 // restarted (in about 20 ms, from files already in memory) well before that.
 const PHONEMIZER_CALLS = 8;
+// Piper's speed setting isn't linear: asking for 1.4x gives about 1.27x. Measured pairs of
+// [speed you hear, setting needed] (average of two voices), used to hit the speed asked for.
+const SPEED_TABLE = [
+  [0.46, 0.4], [0.56, 0.5], [0.66, 0.6], [0.75, 0.7], [0.9, 0.85], [1, 1], [1.12, 1.2],
+  [1.27, 1.4], [1.5, 1.7], [1.62, 2], [1.81, 2.5], [2.01, 3],
+];
+
+function engineSpeed(target) {
+  const t = SPEED_TABLE;
+  let i = 1;
+  while (i < t.length - 1 && target > t[i][0]) i++;
+  const [[a0, s0], [a1, s1]] = [t[i - 1], t[i]];
+  return s0 + ((target - a0) * (s1 - s0)) / (a1 - a0);
+}
 
 let session = null;
 let config = null;
@@ -107,7 +121,7 @@ async function synthesize(text, speed) {
   const feeds = {
     input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
     input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
-    scales: new ort.Tensor('float32', Float32Array.from([noise, length / speed, noiseW]), [3]),
+    scales: new ort.Tensor('float32', Float32Array.from([noise, length / engineSpeed(speed), noiseW]), [3]),
   };
   if (config.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
   const { output } = await session.run(feeds);
@@ -187,7 +201,7 @@ async function speak({ id, text, speed = 1 }) {
       // One unreadable piece (odd symbols, a table…) shouldn't stop the whole book.
       console.warn('Skipped a piece of text that could not be spoken:', piece.text.slice(0, 80), err);
     }
-    writer.silence(piece.pause);
+    writer.silence(piece.pause / speed);
     postMessage({ type: 'progress', id, chars: piece.text.length });
   }
   writer.silence(1);

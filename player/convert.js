@@ -4,20 +4,25 @@
 // The voices (Piper) run in Web Workers (tts-worker.js); finished chapters go straight into
 // the library, so listening can start while the rest of the book is still being made.
 
+// Piper voices in player/voices/. "Narrator" voices were trained on LibriVox audiobook readings.
 const VOICES = [
-  {
-    id: 'lessac',
-    name: 'Lessac (female, American English)',
-    model: 'voices/en_US-lessac-medium.onnx',
-    config: 'voices/en_US-lessac-medium.onnx.json',
-  },
-  {
-    id: 'ryan',
-    name: 'Ryan (male, American English)',
-    model: 'voices/en_US-ryan-medium.onnx',
-    config: 'voices/en_US-ryan-medium.onnx.json',
-  },
-];
+  ['lessac', 'en_US-lessac-medium', 'Lessac (female)', 'American English'],
+  ['amy', 'en_US-amy-medium', 'Amy (female)', 'American English'],
+  ['kristin', 'en_US-kristin-medium', 'Kristin (female, narrator)', 'American English'],
+  ['ryan', 'en_US-ryan-medium', 'Ryan (male)', 'American English'],
+  ['norman', 'en_US-norman-medium', 'Norman (male, narrator)', 'American English'],
+  ['john', 'en_US-john-medium', 'John (male, narrator)', 'American English'],
+  ['cori', 'en_GB-cori-medium', 'Cori (female, narrator)', 'British English'],
+  ['jenny', 'en_GB-jenny_dioco-medium', 'Jenny (female)', 'British English'],
+  ['alan', 'en_GB-alan-medium', 'Alan (male)', 'British English'],
+  ['northern', 'en_GB-northern_english_male-medium', 'Northern English (male)', 'British English'],
+].map(([id, file, name, group]) => ({
+  id,
+  name,
+  group,
+  model: `voices/${file}.onnx`,
+  config: `voices/${file}.onnx.json`,
+}));
 const SAMPLE_TEXT =
   'Hello! This is how your audiobook will sound. It was a bright cold day in April, and the clocks were striking thirteen.';
 const WORDS_PER_MINUTE = 155; // typical narration speed, for estimates
@@ -405,11 +410,18 @@ const Converter = (() => {
 
   // ---------- Events ----------
 
+  const groups = new Map();
   for (const v of VOICES) {
+    if (!groups.has(v.group)) {
+      const optgroup = document.createElement('optgroup');
+      optgroup.label = v.group;
+      groups.set(v.group, optgroup);
+      $('cv-voice').append(optgroup);
+    }
     const option = document.createElement('option');
     option.value = v.id;
     option.textContent = v.name;
-    $('cv-voice').append(option);
+    groups.get(v.group).append(option);
   }
 
   $('pick-book').addEventListener('change', e => {
@@ -423,6 +435,10 @@ const Converter = (() => {
   });
   $('cv-preview').addEventListener('click', playSample);
   $('cv-voice').addEventListener('change', stopSample);
+  $('cv-speed').addEventListener('input', () => {
+    $('cv-speed-value').textContent = `${Number(Number($('cv-speed').value).toFixed(2))}\u00d7`;
+    stopSample();
+  });
   $('cv-other').addEventListener('click', () => {
     stopSample();
     chosen = null;

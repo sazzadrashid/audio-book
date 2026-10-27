@@ -17,7 +17,7 @@ You don't need to know how to code to use it.
 
 1. Open the website and press **Make audiobook**.
 2. Press **Choose a book** and pick a `.pdf`, `.epub` or `.txt` file (English).
-3. Check the title and author, pick a voice (press **Play a sample** to hear it) and a reading speed.
+3. Check the title and author, and pick one of the **10 voices** (female and male, American and British). Press **Play a sample** to hear it. Then set the reading speed: any speed from 0.6× to 2×, such as 0.75× or 1.3×.
 4. Press **Make audiobook**.
    - The first time, the voice is downloaded (about 63 MB). After that it's saved in the browser.
    - **Keep the page open** while it works. On a phone, keep the screen on.
@@ -34,7 +34,7 @@ The **Library** shows all your books and how much of each is left. The player ha
 
 - A chapter list. It moves to the next chapter by itself.
 - Back 15 seconds and forward 30 seconds
-- Playback speed from 0.75× to 2.5×
+- Any playback speed from 0.5× to 3× (slider, − / + in 0.05 steps, or quick picks)
 - Sleep timer (5–60 minutes, or at the end of the chapter)
 - **Remembers where you stopped** in every book
 - Lock-screen and headphone controls on phones

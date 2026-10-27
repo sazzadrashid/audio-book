@@ -68,14 +68,22 @@
           <label class="field">Voice <select id="cv-voice"></select></label>
           <button type="button" id="cv-preview" class="btn">Play a sample</button>
         </div>
-        <label class="field">Reading speed
-          <select id="cv-speed">
-            <option value="0.9">Slower</option>
-            <option value="1" selected>Normal</option>
-            <option value="1.1">A little faster</option>
-            <option value="1.25">Faster</option>
-          </select>
-        </label>
+        <div class="field">
+          <label for="cv-speed">Reading speed <output id="cv-speed-value" class="speed-value">1×</output></label>
+          <div class="speed-row">
+            <button type="button" class="step-btn" data-for="cv-speed" data-step="-0.05" aria-label="Slower">−</button>
+            <input type="range" id="cv-speed" min="0.6" max="2" step="0.05" value="1">
+            <button type="button" class="step-btn" data-for="cv-speed" data-step="0.05" aria-label="Faster">+</button>
+          </div>
+          <div class="speed-presets" data-for="cv-speed">
+            <button type="button" data-rate="0.75">0.75×</button>
+            <button type="button" data-rate="0.9">0.9×</button>
+            <button type="button" data-rate="1">1×</button>
+            <button type="button" data-rate="1.15">1.15×</button>
+            <button type="button" data-rate="1.3">1.3×</button>
+          </div>
+          <span class="muted small">How fast the voice speaks in the MP3 files (0.6× to 2×). Above about 1.5× the voice gets less clear; for fast listening, make it at 1× and speed it up in the player instead (0.5× to 3×).</span>
+        </div>
         <p id="cv-voice-status" class="muted small" hidden></p>
         <p id="cv-summary" class="summary"></p>
         <details class="chapter-preview">
@@ -136,7 +144,24 @@
       </div>
 
       <div class="options">
-        <button id="speed" class="btn" type="button" aria-label="Playback speed">1×</button>
+        <div class="speed-wrap">
+          <button id="speed" class="btn" type="button" aria-label="Playback speed" aria-expanded="false" aria-controls="speed-panel">1×</button>
+          <div id="speed-panel" class="speed-panel" hidden>
+            <label for="speed-range">Speed <output id="speed-value" class="speed-value">1×</output></label>
+            <div class="speed-row">
+              <button type="button" class="step-btn" data-for="speed-range" data-step="-0.05" aria-label="Slower">−</button>
+              <input type="range" id="speed-range" min="0.5" max="3" step="0.05" value="1">
+              <button type="button" class="step-btn" data-for="speed-range" data-step="0.05" aria-label="Faster">+</button>
+            </div>
+            <div class="speed-presets" data-for="speed-range">
+              <button type="button" data-rate="0.75">0.75×</button>
+              <button type="button" data-rate="1">1×</button>
+              <button type="button" data-rate="1.25">1.25×</button>
+              <button type="button" data-rate="1.5">1.5×</button>
+              <button type="button" data-rate="2">2×</button>
+            </div>
+          </div>
+        </div>
         <label class="sleep">
           <span class="visually-hidden">Sleep timer</span>
           <select id="sleep">
