@@ -23,10 +23,15 @@ const MAX_CHARS = 400;
 const SENTENCE_PAUSE = 0.25; // seconds of silence between pieces
 const PARAGRAPH_PAUSE = 0.6;
 const MP3_KBPS = 48; // plenty for speech, about 21 MB per hour
+// The phonemizer leaks a little memory on every call and crashes after a few dozen, so it is
+// restarted (in about 20 ms, from files already in memory) well before that.
+const PHONEMIZER_CALLS = 8;
 
 let session = null;
 let config = null;
 let phonemizer = null;
+let phonemizerCalls = 0;
+let phonemizerFiles = null; // { wasmBinary, data }
 const phonemizerOutput = [];
 
 async function fetchWithCache(url, onProgress) {
@@ -56,27 +61,47 @@ async function loadVoice(modelUrl, configUrl) {
   config = JSON.parse(new TextDecoder().decode(await fetchWithCache(configUrl)));
   const model = await fetchWithCache(modelUrl, (loaded, total) => postMessage({ type: 'loading', loaded, total }));
   session = await ort.InferenceSession.create(model, { executionProviders: ['wasm'] });
+  const [wasmBinary, data] = await Promise.all([
+    fetch('vendor/piper/piper_phonemize.wasm').then(r => r.arrayBuffer()),
+    fetch('vendor/piper/piper_phonemize.data').then(r => r.arrayBuffer()),
+  ]);
+  phonemizerFiles = { wasmBinary, data };
+  await restartPhonemizer();
+}
+
+async function restartPhonemizer() {
   phonemizer = await createPiperPhonemize({
     print: line => phonemizerOutput.push(line),
     printErr: () => {},
+    wasmBinary: phonemizerFiles.wasmBinary,
+    getPreloadedPackage: () => phonemizerFiles.data,
     locateFile: file => new URL(`vendor/piper/${file}`, self.location.href).href,
     noInitialRun: true,
   });
+  phonemizerCalls = 0;
 }
 
-function phonemeIds(text) {
-  phonemizerOutput.length = 0;
-  phonemizer.callMain([
-    '-l', config.espeak.voice,
-    '--input', JSON.stringify([{ text }]),
-    '--espeak_data', '/espeak-ng-data',
-  ]);
-  const line = phonemizerOutput.pop();
-  return line ? JSON.parse(line).phoneme_ids : [];
+async function phonemeIds(text) {
+  for (let attempt = 1; ; attempt++) {
+    if (phonemizerCalls >= PHONEMIZER_CALLS || attempt > 1) await restartPhonemizer();
+    phonemizerOutput.length = 0;
+    phonemizerCalls++;
+    try {
+      phonemizer.callMain([
+        '-l', config.espeak.voice,
+        '--input', JSON.stringify([{ text }]),
+        '--espeak_data', '/espeak-ng-data',
+      ]);
+      const line = phonemizerOutput.pop();
+      return line ? JSON.parse(line).phoneme_ids : [];
+    } catch (err) {
+      if (attempt >= 2) throw err;
+    }
+  }
 }
 
 async function synthesize(text, speed) {
-  const ids = phonemeIds(text);
+  const ids = await phonemeIds(text);
   if (!ids.length) return new Float32Array(0);
   const { noise_scale: noise, length_scale: length, noise_w: noiseW } = config.inference;
   const feeds = {
@@ -156,7 +181,12 @@ async function speak({ id, text, speed = 1 }) {
   const writer = new Mp3Writer(config.audio.sample_rate);
   writer.silence(0.3);
   for (const piece of splitText(text)) {
-    writer.write(await synthesize(piece.text, speed));
+    try {
+      writer.write(await synthesize(piece.text, speed));
+    } catch (err) {
+      // One unreadable piece (odd symbols, a table…) shouldn't stop the whole book.
+      console.warn('Skipped a piece of text that could not be spoken:', piece.text.slice(0, 80), err);
+    }
     writer.silence(piece.pause);
     postMessage({ type: 'progress', id, chars: piece.text.length });
   }

@@ -320,7 +320,8 @@ const Converter = (() => {
     if (job === thisJob) job = null;
 
     if (thisJob.failed) {
-      $('cp-status').textContent = `Something went wrong: ${thisJob.failed.message} The finished chapters are kept. You can continue from the Library.`;
+      const reason = thisJob.failed.message.replace(/[.\s]*$/, '.');
+      $('cp-status').textContent = `Something went wrong: ${reason} The finished chapters are kept. Press \u201cContinue making\u201d in the Library to try again.`;
       finishButtons(bookId, ready > 0);
     } else if (!thisJob.stopped) {
       await db.updateBook(bookId, b => {
