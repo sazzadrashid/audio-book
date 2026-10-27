@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audio Book</title>
+  <meta name="description" content="A simple audiobook player that remembers where you stopped.">
+  <meta name="theme-color" content="#14161a">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e8a33d' d='M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="topbar">
+    <button id="back" class="icon-btn" type="button" aria-label="Back to library" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
+    </button>
+    <h1 id="heading">Library</h1>
+    <div class="add-buttons" id="add-buttons">
+      <label class="btn primary">
+        Add files
+        <input type="file" id="pick-files" accept="audio/*,.m4b,.json,image/*" multiple hidden>
+      </label>
+      <label class="btn">
+        Add folder
+        <input type="file" id="pick-folder" webkitdirectory multiple hidden>
+      </label>
+    </div>
+  </header>
+
+  <main>
+    <section id="library" aria-label="Library">
+      <div id="empty" class="empty" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>
+        <h2>No audiobooks yet</h2>
+        <p>Press <strong>Add files</strong> and pick the audio files of one book (MP3, M4A, M4B…), or press <strong>Add folder</strong> and pick a folder.</p>
+        <p>You can also drag files or folders onto this page.</p>
+        <p class="muted">Books you add stay on this device only. They are not uploaded anywhere.</p>
+      </div>
+      <ul id="books" class="books"></ul>
+    </section>
+
+    <section id="player" aria-label="Player" hidden>
+      <div class="cover-wrap">
+        <img id="cover" alt="" hidden>
+        <div id="cover-fallback" class="cover-fallback" aria-hidden="true"></div>
+      </div>
+      <h2 id="book-title" class="book-title"></h2>
+      <p id="book-author" class="muted"></p>
+      <p id="chapter-title" class="chapter-title"></p>
+
+      <input type="range" id="seek" min="0" max="0" step="1" value="0" aria-label="Position in chapter">
+      <div class="times"><span id="elapsed">0:00</span><span id="remaining">-0:00</span></div>
+
+      <div class="controls">
+        <button id="prev" class="icon-btn" type="button" aria-label="Previous chapter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+        </button>
+        <button id="rewind" class="icon-btn skip" type="button" aria-label="Back 15 seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+          <span>15</span>
+        </button>
+        <button id="play" class="play-btn" type="button" aria-label="Play">
+          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+        </button>
+        <button id="forward" class="icon-btn skip" type="button" aria-label="Forward 30 seconds">
+          <svg viewBox="0 0 24 24" aria-hidden="true" class="mirror"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+          <span>30</span>
+        </button>
+        <button id="next" class="icon-btn" type="button" aria-label="Next chapter">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+        </button>
+      </div>
+
+      <div class="options">
+        <button id="speed" class="btn" type="button" aria-label="Playback speed">1×</button>
+        <label class="sleep">
+          <span class="visually-hidden">Sleep timer</span>
+          <select id="sleep">
+            <option value="0">Sleep timer: off</option>
+            <option value="5">Sleep in 5 min</option>
+            <option value="15">Sleep in 15 min</option>
+            <option value="30">Sleep in 30 min</option>
+            <option value="45">Sleep in 45 min</option>
+            <option value="60">Sleep in 60 min</option>
+            <option value="chapter">Sleep at end of chapter</option>
+          </select>
+        </label>
+        <span id="sleep-left" class="muted"></span>
+      </div>
+
+      <div class="book-progress">
+        <div class="bar"><div id="book-progress-fill"></div></div>
+        <p id="book-progress" class="muted"></p>
+      </div>
+
+      <h3 class="section-label">Chapters</h3>
+      <ol id="chapters" class="chapters"></ol>
+    </section>
+  </main>
+
+  <div id="now-playing" class="now-playing" hidden>
+    <button id="np-open" class="np-text" type="button" aria-label="Open the player">
+      <span id="np-title" class="np-title"></span>
+      <span id="np-chapter" class="muted"></span>
+    </button>
+    <button id="np-play" class="np-play" type="button" aria-label="Play">
+      <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+      <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+    </button>
+  </div>
+
+  <div id="drop-hint" class="drop-hint" hidden><p>Drop to add to your library</p></div>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <audio id="audio" preload="metadata"></audio>
+  <script src="app.js"></script>
+</body>
+</html>
