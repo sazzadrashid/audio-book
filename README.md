@@ -1,43 +1,60 @@
 # Audio Book
 
-Listen to audiobooks in your browser, and turn e-books into audiobooks.
+A website that **turns PDF, EPUB and text books into audiobooks** and lets you listen to them.
 
-This project has two parts:
+- Choose a book. A natural-sounding computer voice reads it aloud and saves it as **MP3 files, one per chapter**.
+- **Start listening after the first chapter**, while the rest is still being made.
+- **Download** the finished MP3s as one `.zip` file to keep, share, or play in any app.
+- **Everything happens in your browser.** Your books are never uploaded, and there's no account, server or fee.
 
-| Part | What it does |
-| --- | --- |
-| **Player** (`player/`) | A website for listening to audiobooks on your phone or computer. It remembers where you stopped. |
-| **Converter** (`converter/`) | Turns an e-book (EPUB, PDF or TXT) into an audiobook with a natural-sounding voice, one MP3 file per chapter. |
-
-You don't need to know how to code to use either one.
+You don't need to know how to code to use it.
 
 ---
 
-## The player
+## Using it
 
-### What it can do
+### Make an audiobook
 
-- A library of all your books, with how much of each is left
-- Chapter list. It moves to the next chapter by itself.
+1. Open the website and press **Make audiobook**.
+2. Press **Choose a book** and pick a `.pdf`, `.epub` or `.txt` file (English).
+3. Check the title and author, pick a voice (press **Play a sample** to hear it) and a reading speed.
+4. Press **Make audiobook**.
+   - The first time, the voice is downloaded (about 63 MB). After that it's saved in the browser.
+   - **Keep the page open** while it works. On a phone, keep the screen on.
+   - Press **Start listening** as soon as the first chapter is ready.
+5. When it's finished, press **Download MP3 files** to save them.
+
+If you close the page or press **Stop**, the chapters made so far are kept. Press **Continue making** on the book in the Library to finish it later.
+
+**How long does it take?** It depends on the device. On a recent computer, making the audio usually takes about a quarter of the listening time (a 10-hour book takes around 2–3 hours). Phones are slower.
+
+### Listen
+
+The **Library** shows all your books and how much of each is left. The player has:
+
+- A chapter list. It moves to the next chapter by itself.
 - Back 15 seconds and forward 30 seconds
 - Playback speed from 0.75× to 2.5×
 - Sleep timer (5–60 minutes, or at the end of the chapter)
-- **Remembers where you stopped** in every book, even after closing the browser
+- **Remembers where you stopped** in every book
 - Lock-screen and headphone controls on phones
-- Light and dark mode
 - Keyboard shortcuts on a computer: <kbd>Space</kbd> play/pause, <kbd>←</kbd> back 15 s, <kbd>→</kbd> forward 30 s
 
-### Adding books
+Already have audiobook files (MP3, M4A, M4B)? Use **Add audio files** or **Add a folder** at the bottom of the Library.
 
-There are two ways to add books:
+### Good to know
 
-1. **Your own audio files.** Press **Add files** and choose all the MP3/M4A/M4B files of one book, or press **Add folder** and choose a folder. On a computer you can also drag files onto the page.
-   These books are stored **only in that browser on that device**. Nothing is uploaded.
-2. **Books made with the converter.** These are published with the website, so they show up on every device with an **Online** label.
+- Books and audio are stored **in that browser on that device**. A book made on your laptop isn't on your phone. Download the MP3s and copy them over, or make it again there.
+- **Copy-protected e-books** (most books bought from Kindle, Apple Books, etc.) can't be read.
+- **Scanned PDFs** (photos of pages) have no text to read. Use an EPUB or text version instead.
+- Free public-domain books in EPUB and text format: [Project Gutenberg](https://www.gutenberg.org), [Standard Ebooks](https://standardebooks.org).
+- The voices are free for personal, non-commercial use (see [player/vendor/README.md](player/vendor/README.md)).
 
-### Putting the player online (one-time setup)
+---
 
-This makes the player a website you can open on your phone, at
+## Putting the website online (one-time setup)
+
+This makes the app a website you can open on any device, at
 `https://<your-github-name>.github.io/audio-book/`.
 
 1. On GitHub, open this repository and go to **Settings → Pages**.
@@ -51,89 +68,40 @@ The website updates by itself every time something in the `player` folder change
 
 ---
 
-## The converter
+## Advanced: command-line converter
 
-### The easy way: ask Claude
-
-1. **Upload your book.** On GitHub, open the `inbox` folder, press **Add file → Upload files**, drop in your `.epub`, `.pdf` or `.txt` file and press **Commit changes**.
-2. **Open a Claude Code cloud session** on this repository (at [claude.ai/code](https://claude.ai/code)) and ask something like:
-   > Convert inbox/my-book.epub into an audiobook and publish it.
-3. Claude makes the audio, saves it in the repository, and the book appears on your player website a minute later.
-
-Other things you can ask:
-
-- *"Show me which chapters you find in inbox/my-book.pdf"*: checks the chapters first without making any audio
-- *"Make just the first chapter so I can hear the voice"*
-- *"Use a British female voice"* or *"Read it in Bangla"*
-- *"Read a bit faster"*
-
-**Cloud network setting needed.** The natural voices come from Microsoft's online speech service. A cloud session must be allowed to reach it. In the session's environment settings (the environment menu in the title bar → **Edit** → **Network access**), add `speech.platform.bing.com` under **Allowed domains**, or choose a broader access level. ([How to change it](https://code.claude.com/docs/en/cloud-environments#network-access).)
-Without that, Claude can still use the offline voice (`--engine espeak`), but it sounds robotic.
-
-### Voices
-
-The default voice is `en-US-AriaNeural`. There are hundreds of voices in many languages. A few examples:
-
-| Voice | Language |
-| --- | --- |
-| `en-US-AriaNeural`, `en-US-GuyNeural` | English (US) |
-| `en-GB-SoniaNeural`, `en-GB-RyanNeural` | English (UK) |
-| `en-IN-NeerjaNeural` | English (India) |
-| `bn-BD-NabanitaNeural`, `bn-BD-PradeepNeural` | Bangla (Bangladesh) |
-| `bn-IN-TanishaaNeural` | Bangla (India) |
-| `hi-IN-SwaraNeural` | Hindi |
-
-To see them all: `python converter/audiobook.py --list-voices en` (or `bn`, `fr`, …).
-
-### Running it on your own computer
-
-You need [Python](https://www.python.org/downloads/) 3.9 or newer. In a terminal, inside this folder:
+`converter/audiobook.py` does the same job from a terminal. It can also use Microsoft's online voices, which cover many more languages, including Bangla (`bn-BD-NabanitaNeural`, `bn-BD-PradeepNeural`). Books it makes go into `player/books/` and appear on the website for everyone, marked **Online**.
 
 ```bash
 pip install -r converter/requirements.txt
-python converter/audiobook.py inbox/my-book.epub
+python converter/audiobook.py my-book.epub                      # make it
+python converter/audiobook.py my-book.pdf --dry-run             # only show the chapters found
+python converter/audiobook.py my-book.txt --voice en-GB-SoniaNeural --rate +10%
+python converter/audiobook.py --list-voices bn                  # list voices for a language
 ```
 
-Useful options:
+Other options: `--limit 1` (first chapter only), `--title`, `--author`, `--out`, `--force`, and `--engine espeak` (offline robotic voice). Run `python converter/audiobook.py --help` for details.
 
-| Option | What it does |
-| --- | --- |
-| `--dry-run` | Only show the chapters it found |
-| `--limit 1` | Only make the first chapter (to try a voice) |
-| `--voice en-GB-SoniaNeural` | Choose the voice |
-| `--rate +10%` | Read 10% faster (`-10%` for slower) |
-| `--title "..."` / `--author "..."` | Fix the title or author |
-| `--engine espeak` | Offline robotic voice (needs `espeak-ng` and `ffmpeg` installed) |
-| `--out some/folder` | Save somewhere other than `player/books` |
-| `--force` | Remake chapters that already exist |
-
-If it stops part-way (for example, the internet drops), run the same command again. It continues where it left off.
-
-The result is a folder in `player/books/` with one MP3 per chapter and a `book.json` file. You can also copy that folder to any device and open it in the player with **Add folder**.
-
-### Good to know
-
-- **Only convert books you're allowed to.** A free GitHub account makes the repository and the website public, so anyone with the link can listen. Public-domain books (for example from [Project Gutenberg](https://www.gutenberg.org)) and your own writing are fine.
-- **DRM-protected e-books** (most books bought from Kindle, Apple Books, etc.) can't be read.
-- **Scanned PDFs** (photos of pages) have no text to read. Use an EPUB or TXT version instead.
-- **Size:** an hour of audio is about 20 MB. GitHub Pages sites can be up to 1 GB, which is roughly 50 hours of audio.
+Books published this way are **public** on a free GitHub account, so only publish books you're allowed to share.
 
 ---
 
 ## For developers
 
 ```
-player/              Static website (plain HTML/CSS/JS, no build step)
-  index.html
-  style.css
-  app.js             Library (IndexedDB), playback, sleep timer, media session
-  books/             Converted books + index.json, published with the site
-converter/
-  audiobook.py       EPUB/PDF/TXT → chapters → MP3 (edge-tts or eSpeak NG)
-  requirements.txt
-tests/               pytest tests for the converter
-inbox/               Drop books to convert here
+player/                 The website (plain HTML/CSS/JS, no build step)
+  index.html, style.css
+  app.js                Library (IndexedDB), player, downloads
+  convert.js            "Make audiobook" page: job queue, worker pool, resume
+  book-text.js          PDF/EPUB/TXT text extraction and chapter detection
+  tts-worker.js         Piper text-to-speech + MP3 encoding in a Web Worker
+  voices/               Piper voice models (.onnx + .onnx.json)
+  vendor/               ONNX Runtime Web, piper-phonemize, lamejs, PDF.js, JSZip
+  books/                Books published with the site (from the CLI converter) + index.json
+converter/audiobook.py  Command-line converter (edge-tts or eSpeak NG)
+tests/                  pytest tests for the command-line converter
 ```
 
-- Run the player locally: `npx http-server player` (a server that supports range requests is needed for seeking; `python -m http.server` does not).
+- Run the website locally: `npx http-server player`. You need a server that supports range requests, or seeking in audio breaks; `python -m http.server` doesn't support them.
 - Run the tests: `pip install -r converter/requirements.txt pytest && pytest -q`
+- Adding a voice: put a Piper `.onnx` and `.onnx.json` in `player/voices/` and add it to `VOICES` in `player/convert.js`.

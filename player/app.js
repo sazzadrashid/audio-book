@@ -1,11 +1,11 @@
 'use strict';
 
 // Audio Book player.
-// Books you add are stored in this browser (IndexedDB), so nothing is uploaded.
-// Books made with the converter and published with the site are listed in books/index.json.
+// Books you add or make are stored in this browser (IndexedDB), so nothing is uploaded.
+// Books made with the command-line converter and published with the site are listed in books/index.json.
 
 const DB_NAME = 'audio-book';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const SKIP_BACK = 15;
 const SKIP_FORWARD = 30;
 const SPEEDS = [0.75, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5];
@@ -22,8 +22,10 @@ const dbPromise = new Promise((resolve, reject) => {
   const req = indexedDB.open(DB_NAME, DB_VERSION);
   req.onupgradeneeded = () => {
     const db = req.result;
-    db.createObjectStore('books', { keyPath: 'id' });
-    db.createObjectStore('files', { keyPath: 'id' });
+    // jobs: the text of books still being turned into audio, so making them can continue later.
+    for (const name of ['books', 'files', 'jobs']) {
+      if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
+    }
   };
   req.onsuccess = () => resolve(req.result);
   req.onerror = () => reject(req.error);
@@ -47,10 +49,32 @@ const db = {
   putBook: async book => done((await objectStore('books', 'readwrite')).put(book)),
   getFile: async id => done((await objectStore('files')).get(id)),
   putFile: async rec => done((await objectStore('files', 'readwrite')).put(rec)),
+  getJob: async id => done((await objectStore('jobs')).get(id)),
+  putJob: async job => done((await objectStore('jobs', 'readwrite')).put(job)),
+  deleteJob: async id => done((await objectStore('jobs', 'readwrite')).delete(id)),
+  // Read, change and save a book in one step, so two changes at once can't overwrite each other.
+  async updateBook(id, change) {
+    const conn = await dbPromise;
+    const t = conn.transaction('books', 'readwrite');
+    const store = t.objectStore('books');
+    let book;
+    store.get(id).onsuccess = e => {
+      book = e.target.result;
+      if (book) {
+        change(book);
+        store.put(book);
+      }
+    };
+    return new Promise((resolve, reject) => {
+      t.oncomplete = () => resolve(book);
+      t.onerror = () => reject(t.error);
+    });
+  },
   async deleteBook(book) {
     const conn = await dbPromise;
-    const t = conn.transaction(['books', 'files'], 'readwrite');
+    const t = conn.transaction(['books', 'files', 'jobs'], 'readwrite');
     t.objectStore('books').delete(book.id);
+    t.objectStore('jobs').delete(book.id);
     for (const ch of book.chapters) if (ch.fileId) t.objectStore('files').delete(ch.fileId);
     if (book.coverId) t.objectStore('files').delete(book.coverId);
     return new Promise((resolve, reject) => {
@@ -86,6 +110,10 @@ function formatLong(seconds) {
   if (h && m) return `${h} h ${m} min`;
   if (h) return `${h} h`;
   return `${m} min`;
+}
+
+function safeFileName(name) {
+  return name.replace(/[<>:"/\\|?*\x00-\x1f#%]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/[ .]+$/, '').slice(0, 60) || 'audiobook';
 }
 
 function prettyName(fileName) {
@@ -346,7 +374,10 @@ async function renderLibrary() {
     title.textContent = book.title;
     const meta = document.createElement('span');
     meta.className = 'meta muted';
-    meta.textContent = book.finished
+    const ready = book.chapters.filter(ch => ch.fileId || ch.url).length;
+    meta.textContent = book.making
+      ? `Making audio: ${ready} of ${book.chapters.length} chapters`
+      : book.finished
       ? 'Finished'
       : listened > 0
         ? `${formatLong(Math.max(0, total - listened))} left`
@@ -354,26 +385,26 @@ async function renderLibrary() {
     const bar = document.createElement('div');
     bar.className = 'bar';
     const fill = document.createElement('div');
-    fill.style.width = `${pct}%`;
+    fill.style.width = `${book.making ? (ready / book.chapters.length) * 100 : pct}%`;
+    if (book.making) bar.classList.add('making');
     bar.append(fill);
     info.append(title, meta, bar);
     open.append(thumb, info);
 
     const actions = document.createElement('div');
     actions.className = 'book-actions';
-    const rename = document.createElement('button');
-    rename.type = 'button';
-    rename.textContent = 'Rename';
-    rename.addEventListener('click', () => renameBook(book.id));
-    actions.append(rename);
-    if (!book.published) {
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'delete';
-      del.textContent = 'Remove';
-      del.addEventListener('click', () => removeBook(book.id));
-      actions.append(del);
-    }
+    const action = (label, handler, className = '') => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.className = className;
+      btn.addEventListener('click', handler);
+      actions.append(btn);
+    };
+    if (book.making && !Converter.isMaking(book.id)) action('Continue making', () => Converter.resume(book.id), 'strong');
+    if (!book.published && ready) action('Download', () => downloadBook(book.id));
+    action('Rename', () => renameBook(book.id));
+    if (!book.published) action('Remove', () => removeBook(book.id), 'delete');
 
     card.append(open, actions);
     if (book.published) {
@@ -388,13 +419,14 @@ async function renderLibrary() {
 }
 
 async function renameBook(id) {
-  const book = await db.getBook(id);
-  const title = prompt('Book title', book.title);
+  const old = await db.getBook(id);
+  const title = prompt('Book title', old.title);
   if (title === null) return;
-  const author = prompt('Author (optional)', book.author || '');
-  book.title = title.trim() || book.title;
-  if (author !== null) book.author = author.trim();
-  await db.putBook(book);
+  const author = prompt('Author (optional)', old.author || '');
+  const book = await db.updateBook(id, b => {
+    b.title = title.trim() || b.title;
+    if (author !== null) b.author = author.trim();
+  });
   if (current?.id === id) {
     current.title = book.title;
     current.author = book.author;
@@ -403,9 +435,47 @@ async function renameBook(id) {
   await renderLibrary();
 }
 
+// Save all chapters of a book as MP3 files in one .zip file.
+async function downloadBook(id) {
+  const book = await db.getBook(id);
+  const width = Math.max(2, String(book.chapters.length).length);
+  const zip = new JSZip();
+  const folder = zip.folder(safeFileName(book.title));
+  toast('Preparing the download\u2026');
+  const chapters = [];
+  for (const [i, ch] of book.chapters.entries()) {
+    if (!ch.fileId) continue;
+    const rec = await db.getFile(ch.fileId);
+    if (!rec) continue;
+    const ext = (rec.blob.name || '').match(/\.[a-z0-9]+$/i)?.[0] || '.mp3';
+    const file = `${String(i + 1).padStart(width, '0')} - ${safeFileName(ch.title)}${ext}`;
+    folder.file(file, rec.blob, { compression: 'STORE' });
+    chapters.push({ title: ch.title, file, duration: ch.duration || 0 });
+  }
+  let cover = null;
+  if (book.coverId) {
+    const rec = await db.getFile(book.coverId);
+    if (rec) {
+      cover = `cover.${(rec.blob.type.split('/')[1] || 'jpg').replace('jpeg', 'jpg')}`;
+      folder.file(cover, rec.blob, { compression: 'STORE' });
+    }
+  }
+  // book.json lets the player (and the command-line converter) read the chapter names back.
+  folder.file('book.json', JSON.stringify({ title: book.title, author: book.author, cover, chapters }, null, 2));
+  const blob = await zip.generateAsync({ type: 'blob' });
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(blob);
+  link.download = `${safeFileName(book.title)}.zip`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+}
+
 async function removeBook(id) {
   const book = await db.getBook(id);
   if (!confirm(`Remove "${book.title}" from this device? This can't be undone.`)) return;
+  Converter.stop(id);
   if (current?.id === id) closeBook();
   if (book.coverId && coverUrls.has(book.coverId)) {
     URL.revokeObjectURL(coverUrls.get(book.coverId));
@@ -423,16 +493,37 @@ let chapterUrl = null; // object URL for the current chapter (local books)
 let loadToken = 0;
 let lastSave = 0;
 let seeking = false;
+let waitingForChapter = null; // chapter to play as soon as it has been made
+let lastTab = 'library';
 
 function showView(view) {
   const inPlayer = view === 'player';
-  $('library').hidden = inPlayer;
-  $('player').hidden = !inPlayer;
+  if (!inPlayer) lastTab = view;
+  for (const name of ['library', 'convert', 'player']) $(name).hidden = name !== view;
   $('back').hidden = !inPlayer;
-  $('add-buttons').hidden = inPlayer;
-  $('heading').textContent = inPlayer ? 'Now playing' : 'Library';
+  $('tabs').hidden = inPlayer;
+  $('heading').textContent = inPlayer ? 'Now playing' : 'Audio Book';
+  for (const tab of document.querySelectorAll('#tabs button')) {
+    if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
+    else tab.removeAttribute('aria-current');
+  }
   updateNowPlaying();
   window.scrollTo(0, 0);
+}
+
+// Called by the converter each time a chapter of a book has been made.
+async function chapterReady(bookId, index) {
+  if (current?.id !== bookId) return;
+  const book = await db.getBook(bookId);
+  if (!book || current?.id !== bookId) return;
+  current.chapters[index] = book.chapters[index];
+  current.making = book.making;
+  renderChapters();
+  updateTimes();
+  if (waitingForChapter === index) {
+    waitingForChapter = null;
+    loadChapter(index, 0, true);
+  }
 }
 
 async function openBook(id) {
@@ -468,7 +559,7 @@ function closeBook() {
   chapterUrl = null;
   current = null;
   setSleep('0');
-  showView('library');
+  showView(lastTab);
 }
 
 async function renderPlayerHeader() {
@@ -507,7 +598,12 @@ function renderChapters() {
     name.textContent = ch.title;
     const dur = document.createElement('span');
     dur.className = 'dur';
-    dur.textContent = ch.duration ? formatTime(ch.duration) : '';
+    if (!ch.fileId && !ch.url) {
+      dur.textContent = 'being made…';
+      btn.classList.add('pending');
+    } else {
+      dur.textContent = ch.duration ? formatTime(ch.duration) : '';
+    }
     btn.append(num, name, dur);
     btn.addEventListener('click', () => loadChapter(i, 0, true));
     li.append(btn);
@@ -532,6 +628,13 @@ async function loadChapter(index, startAt = 0, autoplay = false) {
   const ch = current.chapters[index];
 
   let src = ch.url;
+  if (!src && !ch.fileId) {
+    waitingForChapter = index;
+    audio.pause();
+    toast('This chapter is still being made. It will start by itself when it\u2019s ready.');
+    return;
+  }
+  waitingForChapter = null;
   if (!src) {
     const rec = await db.getFile(ch.fileId);
     if (token !== loadToken) return;
@@ -656,14 +759,17 @@ async function saveProgress() {
     current.position.time = audio.currentTime;
   }
   lastSave = Date.now();
-  const saved = await db.getBook(current.id);
-  if (!saved) return; // removed meanwhile
-  saved.position = { ...current.position };
-  saved.rate = current.rate;
-  saved.finished = current.finished;
-  saved.lastPlayedAt = Date.now();
-  saved.chapters = current.chapters;
-  await db.putBook(saved);
+  const { position, rate, finished, chapters } = current;
+  await db.updateBook(current.id, saved => {
+    saved.position = { ...position };
+    saved.rate = rate;
+    saved.finished = finished;
+    saved.lastPlayedAt = Date.now();
+    // Keep durations learned while playing, without touching chapters the converter is still making.
+    saved.chapters.forEach((ch, i) => {
+      if (!ch.duration && chapters[i]?.duration) ch.duration = chapters[i].duration;
+    });
+  });
 }
 
 function updatePlayState() {
@@ -794,15 +900,24 @@ $('seek').addEventListener('change', () => {
 
 $('back').addEventListener('click', () => {
   if (history.state?.view === 'player') history.back();
-  else showView('library');
+  else showView(lastTab);
 });
 
 window.addEventListener('popstate', () => {
   if (!$('player').hidden) {
-    showView('library');
+    showView(lastTab);
     renderLibrary();
   }
 });
+
+for (const tab of document.querySelectorAll('#tabs button')) {
+  tab.addEventListener('click', () => {
+    showView(tab.dataset.view);
+    if (tab.dataset.view === 'library') renderLibrary();
+  });
+}
+
+$('empty-make').addEventListener('click', () => showView('convert'));
 
 $('pick-files').addEventListener('change', async e => {
   const items = [...e.target.files].map(file => ({ file, path: file.name }));
@@ -877,13 +992,15 @@ if ('mediaSession' in navigator) {
 
 // ---------- Start ----------
 
-(async () => {
+// Runs after all scripts (including convert.js) have loaded.
+document.addEventListener('DOMContentLoaded', async () => {
   try {
     await renderLibrary();
     await loadPublishedBooks();
     await renderLibrary();
+    await Converter.showUnfinished();
   } catch (err) {
     console.error(err);
     toast('This browser blocked storage, so the library can’t be saved.');
   }
-})();
+});

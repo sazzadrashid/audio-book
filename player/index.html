@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Audio Book</title>
-  <meta name="description" content="A simple audiobook player that remembers where you stopped.">
+  <meta name="description" content="Turn PDF, EPUB and text books into audiobooks, and listen to them. Everything happens in your browser.">
   <meta name="theme-color" content="#14161a">
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e8a33d' d='M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z'/%3E%3C/svg%3E">
   <link rel="stylesheet" href="style.css">
@@ -14,17 +14,11 @@
     <button id="back" class="icon-btn" type="button" aria-label="Back to library" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
     </button>
-    <h1 id="heading">Library</h1>
-    <div class="add-buttons" id="add-buttons">
-      <label class="btn primary">
-        Add files
-        <input type="file" id="pick-files" accept="audio/*,.m4b,.json,image/*" multiple hidden>
-      </label>
-      <label class="btn">
-        Add folder
-        <input type="file" id="pick-folder" webkitdirectory multiple hidden>
-      </label>
-    </div>
+    <h1 id="heading">Audio Book</h1>
+    <nav class="tabs" id="tabs" aria-label="Sections">
+      <button type="button" data-view="library" aria-current="page">Library</button>
+      <button type="button" data-view="convert">Make audiobook</button>
+    </nav>
   </header>
 
   <main>
@@ -32,11 +26,80 @@
       <div id="empty" class="empty" hidden>
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>
         <h2>No audiobooks yet</h2>
-        <p>Press <strong>Add files</strong> and pick the audio files of one book (MP3, M4A, M4B…), or press <strong>Add folder</strong> and pick a folder.</p>
-        <p>You can also drag files or folders onto this page.</p>
-        <p class="muted">Books you add stay on this device only. They are not uploaded anywhere.</p>
+        <p>Turn a PDF, EPUB or text file into an audiobook, or add audio files you already have.</p>
+        <button type="button" id="empty-make" class="btn primary big">Make an audiobook from a book</button>
       </div>
       <ul id="books" class="books"></ul>
+      <div class="add-row">
+        <span class="muted">Already have audiobook files?</span>
+        <label class="btn">
+          Add audio files
+          <input type="file" id="pick-files" accept="audio/*,.m4b,.json,image/*" multiple hidden>
+        </label>
+        <label class="btn">
+          Add a folder
+          <input type="file" id="pick-folder" webkitdirectory multiple hidden>
+        </label>
+      </div>
+    </section>
+
+    <section id="convert" aria-label="Make an audiobook" hidden>
+      <div id="cv-pick" class="panel">
+        <h2>Turn a book into an audiobook</h2>
+        <p>Choose a <strong>PDF</strong>, <strong>EPUB</strong> or <strong>text</strong> file in English. A computer voice reads it aloud and saves it as MP3 audio, one file per chapter.</p>
+        <label class="btn primary big">
+          Choose a book
+          <input type="file" id="pick-book" accept=".pdf,.epub,.txt,.text,.md,application/pdf,application/epub+zip,text/plain" hidden>
+        </label>
+        <p class="muted small">Everything happens on this device. Your book is not uploaded anywhere.</p>
+        <div id="cv-resume" class="resume" hidden></div>
+      </div>
+
+      <div id="cv-reading" class="panel" hidden>
+        <div class="spinner" aria-hidden="true"></div>
+        <p>Reading the book…</p>
+      </div>
+
+      <form id="cv-setup" class="panel" hidden>
+        <h2>Check the details</h2>
+        <label class="field">Title <input id="cv-title" required></label>
+        <label class="field">Author <input id="cv-author" placeholder="Optional"></label>
+        <div class="field-row">
+          <label class="field">Voice <select id="cv-voice"></select></label>
+          <button type="button" id="cv-preview" class="btn">Play a sample</button>
+        </div>
+        <label class="field">Reading speed
+          <select id="cv-speed">
+            <option value="0.9">Slower</option>
+            <option value="1" selected>Normal</option>
+            <option value="1.1">A little faster</option>
+            <option value="1.25">Faster</option>
+          </select>
+        </label>
+        <p id="cv-voice-status" class="muted small" hidden></p>
+        <p id="cv-summary" class="summary"></p>
+        <details class="chapter-preview">
+          <summary>Chapters found</summary>
+          <ol id="cv-chapters"></ol>
+        </details>
+        <div class="actions">
+          <button type="submit" class="btn primary big">Make audiobook</button>
+          <button type="button" id="cv-other" class="btn">Choose a different book</button>
+        </div>
+      </form>
+
+      <div id="cv-progress" class="panel" hidden>
+        <h2 id="cp-title"></h2>
+        <div class="bar big"><div id="cp-fill"></div></div>
+        <p id="cp-status" class="status">Getting the voice ready…</p>
+        <p id="cp-note" class="muted small">Keep this page open while the audio is made. You can start listening as soon as the first chapter is ready.</p>
+        <div class="actions">
+          <button type="button" id="cp-listen" class="btn primary" disabled>Start listening</button>
+          <button type="button" id="cp-download" class="btn" hidden>Download MP3 files</button>
+          <button type="button" id="cp-stop" class="btn">Stop</button>
+          <button type="button" id="cp-new" class="btn" hidden>Make another</button>
+        </div>
+      </div>
     </section>
 
     <section id="player" aria-label="Player" hidden>
@@ -113,6 +176,9 @@
   <div id="drop-hint" class="drop-hint" hidden><p>Drop to add to your library</p></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <audio id="audio" preload="metadata"></audio>
+  <script src="vendor/jszip/jszip.min.js"></script>
+  <script src="book-text.js"></script>
   <script src="app.js"></script>
+  <script src="convert.js"></script>
 </body>
 </html>

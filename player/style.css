@@ -87,7 +87,32 @@ button:focus-visible, select:focus-visible, .btn:focus-within, input:focus-visib
   text-overflow: ellipsis;
 }
 
-.add-buttons { display: flex; gap: 8px; }
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+.tabs button {
+  min-height: 36px;
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.tabs button[aria-current] {
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: var(--shadow);
+}
 
 .btn {
   display: inline-flex;
@@ -110,6 +135,10 @@ button:focus-visible, select:focus-visible, .btn:focus-within, input:focus-visib
   color: var(--accent-text);
   font-weight: 600;
 }
+
+.btn.big { min-height: 52px; padding: 12px 24px; font-size: 1.05rem; }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.small { font-size: 0.875rem; }
 
 .icon-btn {
   display: inline-flex;
@@ -210,6 +239,7 @@ main {
 
 .book-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 2px;
   padding: 0 6px 6px;
@@ -227,6 +257,112 @@ main {
 
 .book-actions button:hover { background: var(--surface-2); color: var(--text); }
 .book-actions .delete:hover { color: var(--danger); }
+.book-actions .strong {
+  flex-basis: 100%;
+  margin-bottom: 2px;
+  padding: 8px;
+  background: var(--accent);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+.book-actions .strong:hover { background: var(--accent); color: var(--accent-text); filter: brightness(1.05); }
+.bar.making > div {
+  background: repeating-linear-gradient(-45deg, var(--accent) 0 6px, color-mix(in srgb, var(--accent) 70%, transparent) 6px 12px);
+}
+
+.add-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 32px 0 8px;
+  font-size: 0.95rem;
+}
+
+/* ---------- Make audiobook ---------- */
+
+#convert { max-width: 600px; margin: 0 auto; }
+
+.panel {
+  padding: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+}
+
+.panel h2 { margin: 0 0 12px; font-size: 1.3rem; }
+.panel p { margin: 0 0 16px; }
+#cv-pick, #cv-reading { text-align: center; }
+#cv-pick .btn.big { margin: 4px 0 16px; }
+
+.resume {
+  display: grid;
+  gap: 8px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.resume p { margin: 0; font-weight: 600; }
+.resume .btn { white-space: normal; text-align: center; }
+
+.field {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-weight: 500;
+}
+
+.field input, .field select {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-weight: 400;
+}
+
+.field-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+.field-row .field { flex: 1 1 240px; }
+.field-row .btn { margin-bottom: 16px; min-height: 44px; }
+
+.summary {
+  padding: 12px 14px;
+  border-radius: 10px;
+  background: var(--surface-2);
+  font-size: 0.95rem;
+}
+
+.chapter-preview { margin-bottom: 20px; }
+.chapter-preview summary { cursor: pointer; font-weight: 500; }
+.chapter-preview ol { margin: 8px 0 0; padding-left: 1.6em; max-height: 280px; overflow: auto; }
+.chapter-preview li { padding: 3px 0; }
+.chapter-preview li span + span { margin-left: 8px; font-size: 0.85rem; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.bar.big { height: 10px; border-radius: 5px; margin: 8px 0 12px; }
+.bar.big > div { transition: width 0.4s; }
+.status { font-weight: 500; font-variant-numeric: tabular-nums; }
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  margin: 8px auto 16px;
+  border: 4px solid var(--surface-2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
 
 .badge {
   position: absolute;
@@ -395,6 +531,8 @@ main {
 .chapters .dur { color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .chapters .current { color: var(--accent); font-weight: 600; }
 .chapters .current .num { color: var(--accent); }
+.chapters .pending .name { color: var(--muted); }
+.chapters .pending .dur { font-style: italic; }
 
 /* ---------- Now playing bar ---------- */
 
@@ -473,9 +611,9 @@ main {
 }
 
 @media (max-width: 480px) {
-  .topbar { flex-wrap: wrap; }
-  .topbar h1 { flex-basis: calc(100% - 56px); }
-  .add-buttons { width: 100%; }
-  .add-buttons .btn { flex: 1; }
+  .topbar h1 { font-size: 1.1rem; }
+  .tabs button { padding: 6px 10px; font-size: 0.9rem; }
+  .panel { padding: 18px; }
+  .actions .btn { flex: 1 1 auto; }
   .books { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 }
