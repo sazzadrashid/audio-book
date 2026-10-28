@@ -301,6 +301,7 @@ def read_pdf(path: Path) -> Book:
         pages = [page.extract_text() or "" for page in reader.pages]
     except Exception as err:
         raise ConverterError(f"Couldn't read the PDF ({err}).") from err
+    pages = remove_running_lines(pages)
 
     if not "".join(pages).strip():
         raise ConverterError(
@@ -316,6 +317,41 @@ def read_pdf(path: Path) -> Book:
     if not chapters:
         chapters = split_into_chapters("\n\n".join(pages))
     return Book(title.strip(), author.strip(), chapters)
+
+
+def remove_running_lines(pages: list[str]) -> list[str]:
+    """Remove running headers and footers (page numbers, the book or chapter title) that repeat
+    at the top or bottom of many pages. Same rule as removeRunningLines in player/book-text.js."""
+    if len(pages) < 4:
+        return pages
+    page_lines = [[line for line in page.split("\n") if line.strip()] for page in pages]
+
+    def key(line: str) -> str:
+        return " ".join(re.sub(r"\d+", "#", line.lower()).split())
+
+    def edges(lines: list[str]) -> list[int]:
+        return sorted({i for i in (0, 1, len(lines) - 2, len(lines) - 1) if 0 <= i < len(lines)})
+
+    counts: dict[str, int] = {}
+    for lines in page_lines:
+        for k in {key(lines[i]) for i in edges(lines)}:
+            counts[k] = counts.get(k, 0) + 1
+    limit = max(3, len(pages) * 0.1)
+    cleaned = []
+    for lines in page_lines:
+        drop = set()
+        for i in edges(lines):
+            line = lines[i].strip()
+            # Headers and footers are short and don't end like a sentence.
+            if (
+                len(key(line)) < 70
+                and not re.search(r"[.!?,;]$", line)
+                and counts.get(key(line), 0) >= limit
+                and not HEADING_RE.fullmatch(line)
+            ):
+                drop.add(i)
+        cleaned.append("\n".join(line for i, line in enumerate(lines) if i not in drop))
+    return cleaned
 
 
 def chapters_from_pdf_outline(reader, pages: list[str]) -> list[Chapter]:

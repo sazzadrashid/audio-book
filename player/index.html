@@ -68,6 +68,13 @@
           <label class="field">Voice <select id="cv-voice"></select></label>
           <button type="button" id="cv-preview" class="btn">Play a sample</button>
         </div>
+        <label class="field">Delivery
+          <select id="cv-delivery">
+            <option value="natural" selected>Natural (recommended)</option>
+            <option value="classic">Classic (the original)</option>
+          </select>
+          <span class="muted small">Natural reads one sentence at a time, with pauses like a person reading aloud. Switch between them and press <strong>Play a sample</strong> to compare.</span>
+        </label>
         <div class="field">
           <label for="cv-speed">Reading speed <output id="cv-speed-value" class="speed-value">1×</output></label>
           <div class="speed-row">

@@ -24,7 +24,8 @@ const VOICES = [
   config: `voices/${file}.onnx.json`,
 }));
 const SAMPLE_TEXT =
-  'Hello! This is how your audiobook will sound. It was a bright cold day in April, and the clocks were striking thirteen.';
+  'It was late when the phone finally rang. Sarah hesitated for a moment, then picked it up. "Hello?" she said quietly.\n\n' +
+  'Nobody answered\u2026 only the sound of rain against the window. Who would call at this hour?';
 const WORDS_PER_MINUTE = 155; // typical narration speed, for estimates
 
 // One voice running in its own worker.
@@ -46,11 +47,11 @@ class Voice {
     return this.ready;
   }
 
-  speak(text, speed, onProgress) {
+  speak(text, { speed = 1, title = '', delivery = 'natural' } = {}, onProgress) {
     const id = newId();
     return new Promise((resolve, reject) => {
       this.requests.set(id, { resolve, reject, onProgress });
-      this.worker.postMessage({ type: 'speak', id, text, speed });
+      this.worker.postMessage({ type: 'speak', id, text, speed, title, delivery });
     });
   }
 
@@ -177,7 +178,7 @@ const Converter = (() => {
         status.textContent = downloadMessage(loaded, total);
       });
       status.textContent = 'Making a sample…';
-      const result = await mine.voice.speak(SAMPLE_TEXT, Number($('cv-speed').value));
+      const result = await mine.voice.speak(SAMPLE_TEXT, { speed: Number($('cv-speed').value), delivery: $('cv-delivery').value });
       if (sample !== mine) return;
       status.hidden = true;
       mine.audio = new Audio(URL.createObjectURL(result.mp3));
@@ -220,6 +221,7 @@ const Converter = (() => {
       id,
       voice: $('cv-voice').value,
       speed: Number($('cv-speed').value),
+      delivery: $('cv-delivery').value,
       texts: chosen.chapters.map(ch => ch.text),
     });
     navigator.storage?.persist?.();
@@ -274,7 +276,8 @@ const Converter = (() => {
     const work = async v => {
       while (queue.length && !thisJob.stopped) {
         const index = queue.shift();
-        const result = await v.speak(saved.texts[index], saved.speed, chars => {
+        const options = { speed: saved.speed, title: book.chapters[index].title, delivery: saved.delivery || 'natural' };
+        const result = await v.speak(saved.texts[index], options, chars => {
           thisJob.doneChars += chars;
           progress();
         });
@@ -435,6 +438,7 @@ const Converter = (() => {
   });
   $('cv-preview').addEventListener('click', playSample);
   $('cv-voice').addEventListener('change', stopSample);
+  $('cv-delivery').addEventListener('change', stopSample);
   $('cv-speed').addEventListener('input', () => {
     $('cv-speed-value').textContent = `${Number(Number($('cv-speed').value).toFixed(2))}\u00d7`;
     stopSample();

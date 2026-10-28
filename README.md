@@ -18,6 +18,7 @@ You don't need to know how to code to use it.
 1. Open the website and press **Make audiobook**.
 2. Press **Choose a book** and pick a `.pdf`, `.epub` or `.txt` file (English).
 3. Check the title and author, and pick one of the **10 voices** (female and male, American and British). Press **Play a sample** to hear it. Then set the reading speed: any speed from 0.6× to 2×, such as 0.75× or 1.3×.
+   - **Delivery: Natural** (the default) reads one sentence at a time, the way a person reads aloud: short breaths at commas, proper pauses between sentences, longer ones between paragraphs and after chapter titles, with small changes in pace. It also reads things like "$10M", "Dr.", "Chapter IV" and "10:30 a.m." as words. **Classic** is the original, faster delivery; switch between them and play a sample to compare.
 4. Press **Make audiobook**.
    - The first time, the voice is downloaded (about 63 MB). After that it's saved in the browser.
    - **Keep the page open** while it works. On a phone, keep the screen on.
@@ -93,7 +94,8 @@ player/                 The website (plain HTML/CSS/JS, no build step)
   index.html, style.css
   app.js                Library (IndexedDB), player, downloads
   convert.js            "Make audiobook" page: job queue, worker pool, resume
-  book-text.js          PDF/EPUB/TXT text extraction and chapter detection
+  book-text.js          PDF/EPUB/TXT text extraction, PDF paragraphs and running headers, chapters
+  speech-text.js        Text clean-up for speech, sentence splitting, pauses and pacing
   tts-worker.js         Piper text-to-speech + MP3 encoding in a Web Worker
   voices/               Piper voice models (.onnx + .onnx.json)
   vendor/               ONNX Runtime Web, piper-phonemize, lamejs, PDF.js, JSZip
@@ -103,5 +105,5 @@ tests/                  pytest tests for the command-line converter
 ```
 
 - Run the website locally: `npx http-server player`. You need a server that supports range requests, or seeking in audio breaks; `python -m http.server` doesn't support them.
-- Run the tests: `pip install -r converter/requirements.txt pytest && pytest -q`
+- Run the tests: `pip install -r converter/requirements.txt pytest && pytest -q` and `node --test tests/*.test.js`
 - Adding a voice: put a Piper `.onnx` and `.onnx.json` in `player/voices/` and add it to `VOICES` in `player/convert.js`.

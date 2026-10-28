@@ -683,3 +683,5 @@ main {
     transform: none;
   }
 }
+
+.field select, .field input { width: 100%; min-width: 0; max-width: 100%; }

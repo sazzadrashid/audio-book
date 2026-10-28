@@ -62,6 +62,15 @@ def test_slugify_and_safe_filename():
     assert audiobook.safe_filename('What? A "test": part/2') == "What A test part 2"
 
 
+def test_remove_running_lines_drops_headers_and_page_numbers():
+    body = "It was a quiet morning in the village.\nNobody expected anything to happen."
+    pages = [f"THE HARD THING ABOUT HARD THINGS\n{body}\nChapter 1 ends here, maybe.\n{n}" for n in range(1, 7)]
+    cleaned = audiobook.remove_running_lines(pages)
+    assert all("HARD THING" not in p for p in cleaned)
+    assert all(not p.rstrip().endswith(str(n)) for n, p in enumerate(cleaned, 1))
+    assert all(body in p and "maybe." in p for p in cleaned)
+
+
 def test_nice_title_keeps_roman_numerals():
     assert audiobook.nice_title("CHAPTER XIV. A NEW HOPE") == "Chapter XIV. A New Hope"
     assert audiobook.nice_title("Chapter 3: Mixed Case") == "Chapter 3: Mixed Case"

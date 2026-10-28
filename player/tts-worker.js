@@ -4,7 +4,9 @@
 //
 // Messages in:
 //   { type: 'load', model, config }                 load a voice (URLs)
-//   { type: 'speak', id, text, speed }              make an MP3 of the text
+//   { type: 'speak', id, text, speed, title, delivery }
+//                                                   make an MP3 of the text; delivery is 'natural'
+//                                                   (sentence by sentence, see speech-text.js) or 'classic'
 // Messages out:
 //   { type: 'loading', loaded, total }              voice download progress
 //   { type: 'ready' }
@@ -12,16 +14,18 @@
 //   { type: 'done', id, mp3, duration }             mp3 is a Blob, duration in seconds
 //   { type: 'error', id, message }
 
-importScripts('vendor/ort/ort.wasm.min.js', 'vendor/piper/piper_phonemize.js', 'vendor/lame/lame.min.js');
+importScripts('vendor/ort/ort.wasm.min.js', 'vendor/piper/piper_phonemize.js', 'vendor/lame/lame.min.js', 'speech-text.js');
 
 ort.env.wasm.wasmPaths = new URL('vendor/ort/', self.location.href).href;
 ort.env.wasm.numThreads = 1; // GitHub Pages can't enable shared memory, so one thread per worker.
 
 const VOICE_CACHE = 'audio-book-voices';
-const CHUNK_CHARS = 280; // text is spoken in pieces of about this size
+// "Classic" delivery: text is spoken in pieces of about CHUNK_CHARS with fixed pauses.
+const CHUNK_CHARS = 280;
 const MAX_CHARS = 400;
 const SENTENCE_PAUSE = 0.25; // seconds of silence between pieces
 const PARAGRAPH_PAUSE = 0.6;
+const SYNTH_ATTEMPTS = 3; // the voice is slightly random; a failed or runaway sentence is made again
 const MP3_KBPS = 48; // plenty for speech, about 21 MB per hour
 // The phonemizer leaks a little memory on every call and crashes after a few dozen, so it is
 // restarted (in about 20 ms, from files already in memory) well before that.
@@ -114,21 +118,102 @@ async function phonemeIds(text) {
   }
 }
 
-async function synthesize(text, speed) {
+async function synthesize(text, speed, pace = 1) {
   const ids = await phonemeIds(text);
   if (!ids.length) return new Float32Array(0);
   const { noise_scale: noise, length_scale: length, noise_w: noiseW } = config.inference;
   const feeds = {
     input: new ort.Tensor('int64', BigInt64Array.from(ids, BigInt), [1, ids.length]),
     input_lengths: new ort.Tensor('int64', BigInt64Array.from([BigInt(ids.length)]), [1]),
-    scales: new ort.Tensor('float32', Float32Array.from([noise, length / engineSpeed(speed), noiseW]), [3]),
+    scales: new ort.Tensor('float32', Float32Array.from([noise, (length * pace) / engineSpeed(speed), noiseW]), [3]),
   };
   if (config.num_speakers > 1) feeds.sid = new ort.Tensor('int64', BigInt64Array.from([0n]), [1]);
   const { output } = await session.run(feeds);
   return output.data;
 }
 
-// Split text into pieces the voice can say in one go, preferring sentence ends.
+// Make a sentence, trying again if the voice fails or produces something far too long.
+// Speech normally takes about 0.06–0.09 s per character. Much longer means the voice dragged the
+// words out (Norman, trained on LibriVox, stretches "Chapter One" to 5 s) or ran away; then the
+// sentence is made again a little faster. The shortest try is kept, never dropped for its length.
+async function synthesizeChecked(text, speed, pace) {
+  const sampleRate = config.audio.sample_rate;
+  const tooLong = Math.max(2.5, (text.length * 0.2) / speed) * sampleRate;
+  let best = null;
+  let bestLength = Infinity;
+  let lastError;
+  for (let attempt = 1; attempt <= SYNTH_ATTEMPTS; attempt++) {
+    try {
+      const audio = await synthesize(text, speed, pace * 0.7 ** (attempt - 1));
+      // Judge the speech itself: short sentences can come with long silence after them.
+      const length = trimSilence(audio, sampleRate).length;
+      if (length <= tooLong) return audio;
+      if (length < bestLength) [best, bestLength] = [audio, length];
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  if (best) return best;
+  throw lastError;
+}
+
+// Cut the silence the voice leaves at both ends of a sentence, so pauses can be set exactly.
+function trimSilence(audio, sampleRate) {
+  const threshold = 0.01;
+  let first = 0;
+  let last = audio.length - 1;
+  while (first < audio.length && Math.abs(audio[first]) < threshold) first++;
+  while (last > first && Math.abs(audio[last]) < threshold) last--;
+  if (first >= last) return new Float32Array(0);
+  const start = Math.max(0, first - Math.round(0.03 * sampleRate));
+  const end = Math.min(audio.length, last + Math.round(0.06 * sampleRate));
+  const out = audio.slice(start, end);
+  const fade = Math.min(Math.round(0.005 * sampleRate), out.length >> 1);
+  for (let i = 0; i < fade; i++) {
+    out[i] *= i / fade;
+    out[out.length - 1 - i] *= i / fade;
+  }
+  return out;
+}
+
+// Widen the pause after a heading that was said together with the next sentence. The heading
+// should end after about headingChars × 0.075 s, so look around there for the quietest moment
+// (10 ms steps, quiet = well below the loudest part) and stretch it to `seconds`.
+function widenHeadingGap(audio, sampleRate, headingChars, speed, seconds) {
+  const step = Math.round(0.01 * sampleRate);
+  const levels = [];
+  for (let i = 0; i + step <= audio.length; i += step) {
+    let sum = 0;
+    for (let j = i; j < i + step; j++) sum += audio[j] * audio[j];
+    levels.push(Math.sqrt(sum / step));
+  }
+  const loudest = Math.max(...levels, 1e-6);
+  const expected = (headingChars * 0.075) / speed / 0.01; // in steps
+  const from = Math.max(20, Math.round(expected * 0.5));
+  const to = Math.min(levels.length - 5, Math.round(expected * 2.2 + 40));
+  let best = null;
+  let runStart = -1;
+  for (let k = from; k <= to; k++) {
+    const quiet = levels[k] < loudest * 0.06;
+    if (quiet && runStart < 0) runStart = k;
+    if ((!quiet || k === to) && runStart >= 0) {
+      const runEnd = quiet ? k + 1 : k;
+      if (!best || runEnd - runStart > best[1] - best[0]) best = [runStart, runEnd];
+      runStart = -1;
+    }
+  }
+  if (!best || best[1] - best[0] < 3) return audio; // no clear gap (needs at least 30 ms)
+  const gap = (best[1] - best[0]) * step;
+  const extra = Math.round(seconds * sampleRate) - gap;
+  if (extra <= 0) return audio;
+  const middle = Math.round(((best[0] + best[1]) / 2) * step);
+  const out = new Float32Array(audio.length + extra);
+  out.set(audio.subarray(0, middle));
+  out.set(audio.subarray(middle), middle + extra);
+  return out;
+}
+
+// "Classic" delivery: split text into pieces the voice can say in one go, preferring sentence ends.
 function splitText(text) {
   const pieces = [];
   for (const paragraph of text.split(/\n{2,}/)) {
@@ -191,18 +276,26 @@ class Mp3Writer {
   }
 }
 
-async function speak({ id, text, speed = 1 }) {
-  const writer = new Mp3Writer(config.audio.sample_rate);
+async function speak({ id, text, speed = 1, title = '', delivery = 'natural' }) {
+  const sampleRate = config.audio.sample_rate;
+  const writer = new Mp3Writer(sampleRate);
+  const natural = delivery !== 'classic';
+  const pieces = natural ? SpeechText.plan(text, { title }) : splitText(text);
   writer.silence(0.3);
-  for (const piece of splitText(text)) {
+  for (const piece of pieces) {
     try {
-      writer.write(await synthesize(piece.text, speed));
+      const audio = await synthesizeChecked(piece.text, speed, piece.pace || 1);
+      let spoken = natural ? trimSilence(audio, sampleRate) : audio;
+      if (piece.headingBreak) {
+        spoken = widenHeadingGap(spoken, sampleRate, piece.headingChars, speed, piece.headingBreak / speed);
+      }
+      writer.write(spoken);
     } catch (err) {
       // One unreadable piece (odd symbols, a table…) shouldn't stop the whole book.
       console.warn('Skipped a piece of text that could not be spoken:', piece.text.slice(0, 80), err);
     }
     writer.silence(piece.pause / speed);
-    postMessage({ type: 'progress', id, chars: piece.text.length });
+    postMessage({ type: 'progress', id, chars: piece.chars ?? piece.text.length });
   }
   writer.silence(1);
   const mp3 = writer.finish();

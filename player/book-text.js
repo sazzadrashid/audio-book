@@ -146,13 +146,15 @@ const BookText = (() => {
       throw new BookError('This PDF could not be opened. It may be damaged.');
     }
 
-    const pages = [];
+    const pageLines = [];
     for (let n = 1; n <= doc.numPages; n++) {
       const page = await doc.getPage(n);
       const content = await page.getTextContent();
-      pages.push(pageText(content.items));
+      pageLines.push(linesOf(content.items));
       page.cleanup();
     }
+    removeRunningLines(pageLines.map(page => page.map(line => line.text)), pageLines);
+    const pages = pageLines.map(linesToText);
     if (!pages.join('').trim()) {
       throw new BookError(
         'This PDF has no text to read. It is probably scanned pages (pictures of text). Try an EPUB or text version of the book.',
@@ -168,21 +170,80 @@ const BookText = (() => {
     return { title, author, chapters, cover: null };
   }
 
-  // Rebuild lines and paragraphs from positioned PDF text.
-  function pageText(items) {
-    let text = '';
-    let lastY = null;
+  // Rebuild the lines of a page from positioned PDF text: { text, x, right, y, size } each.
+  function linesOf(items) {
+    const lines = [];
+    let line = null;
     for (const item of items) {
       if (!('str' in item)) continue;
-      const y = item.transform[5];
-      const fontSize = item.height || Math.abs(item.transform[3]) || 10;
-      // Lines are normally about 1.2 font sizes apart; a bigger gap starts a new paragraph.
-      if (lastY !== null && text.endsWith('\n') && lastY - y > fontSize * 1.8) text += '\n';
-      text += item.str;
-      if (item.hasEOL) text += '\n';
-      if (item.str.trim()) lastY = y;
+      const [x, y] = [item.transform[4], item.transform[5]];
+      const size = item.height || Math.abs(item.transform[3]) || 10;
+      // Some PDFs don't mark line ends; a jump in height starts a new line too.
+      if (line && line.x !== null && item.str.trim() && Math.abs(y - line.y) > size * 0.5) {
+        lines.push(line);
+        line = null;
+      }
+      if (!line) line = { text: '', x: null, right: 0, y, size: 0 };
+      if (item.str.trim()) {
+        if (line.x === null) line.x = x;
+        line.right = Math.max(line.right, x + (item.width || 0));
+        line.size = Math.max(line.size, size);
+        line.y = y;
+      }
+      line.text += item.str;
+      if (item.hasEOL) {
+        lines.push(line);
+        line = null;
+      }
+    }
+    if (line) lines.push(line);
+    return lines.filter(l => l.text.trim());
+  }
+
+  // Join a page's lines, starting a new paragraph where the book does: a bigger gap, an indented
+  // first line, or after a sentence that stops short of the right margin.
+  function linesToText(lines) {
+    if (!lines.length) return '';
+    const counts = new Map();
+    for (const l of lines) counts.set(Math.round(l.x), (counts.get(Math.round(l.x)) || 0) + 1);
+    const margin = [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0] - b[0])[0][0];
+    const rights = lines.map(l => l.right).sort((a, b) => a - b);
+    const fullRight = rights[Math.floor(rights.length * 0.9)];
+    let text = lines[0].text;
+    for (let i = 1; i < lines.length; i++) {
+      const [prev, line] = [lines[i - 1], lines[i]];
+      const size = line.size || prev.size || 10;
+      const bigGap = prev.y - line.y > Math.max(prev.size, size) * 1.8;
+      const indented = line.x > margin + size * 0.8;
+      const shortEnd = /[.!?:"'\u201d\u2019)]\s*$/.test(prev.text) && prev.right < fullRight - size * 2;
+      text += (bigGap || indented || shortEnd ? '\n\n' : '\n') + line.text;
     }
     return text;
+  }
+
+  // Remove running headers and footers (page numbers, the book or chapter title) that repeat at the
+  // top or bottom of many pages. pages: lines of text per page; removes from pageItems in step.
+  function removeRunningLines(pages, pageItems = pages) {
+    if (pages.length < 4) return;
+    const key = line => line.toLowerCase().replace(/\d+/g, '#').replace(/\s+/g, ' ').trim();
+    const edges = lines => [...new Set([0, 1, lines.length - 2, lines.length - 1])].filter(i => i >= 0 && i < lines.length);
+    const counts = new Map();
+    for (const lines of pages) {
+      for (const k of new Set(edges(lines).map(i => key(lines[i])))) counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    const limit = Math.max(3, pages.length * 0.1);
+    pages.forEach((lines, p) => {
+      const drop = edges(lines).filter(i => {
+        const k = key(lines[i]);
+        const line = lines[i].trim();
+        // Headers and footers are short and don't end like a sentence.
+        return k.length < 70 && !/[.!?,;]$/.test(line) && counts.get(k) >= limit && !HEADING_RE.test(line);
+      });
+      for (const i of drop.sort((a, b) => b - a)) {
+        pageItems[p].splice(i, 1);
+        if (pageItems !== pages) lines.splice(i, 1);
+      }
+    });
   }
 
   async function chaptersFromOutline(doc, pages) {
@@ -344,5 +405,5 @@ const BookText = (() => {
     return book;
   }
 
-  return { read, wordCount, cleanText, splitIntoChapters, BookError };
+  return { read, wordCount, cleanText, splitIntoChapters, linesToText, removeRunningLines, BookError };
 })();
