@@ -9,6 +9,9 @@ Copies of these libraries are kept here so the website works without loading any
 | `lame/` | [lamejs](https://github.com/zhuker/lamejs) MP3 encoder | 1.2.1 | LGPL-3.0 |
 | `pdfjs/` | [PDF.js](https://github.com/mozilla/pdf.js) | 4.10.38 | Apache-2.0 |
 | `jszip/` | [JSZip](https://github.com/Stuk/jszip) | 3.10.1 | MIT or GPL-3.0 |
+| `inter/` | [Inter](https://rsms.me/inter/) variable font (weights 100–900), Latin characters, from [@fontsource-variable/inter](https://www.npmjs.com/package/@fontsource-variable/inter): the app's typeface | 5.3.0 | SIL Open Font Licence 1.1 |
+| `literata/` | [Literata](https://github.com/googlefonts/literata) variable font (weights 200–900), Latin characters, from [@fontsource-variable/literata](https://www.npmjs.com/package/@fontsource-variable/literata): the Serif reading font | 5.3.0 | SIL Open Font Licence 1.1 |
+| `opendyslexic/` | [OpenDyslexic](https://opendyslexic.org) font, regular weight, Latin characters (from [@fontsource/opendyslexic](https://www.npmjs.com/package/@fontsource/opendyslexic)) | 5.3.0 | SIL Open Font Licence 1.1 |
 
 ## Voices (`../voices/`)
 

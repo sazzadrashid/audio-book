@@ -74,7 +74,10 @@ const db = {
     const t = conn.transaction(['books', 'files', 'jobs'], 'readwrite');
     t.objectStore('books').delete(book.id);
     t.objectStore('jobs').delete(book.id);
-    for (const ch of book.chapters) if (ch.fileId) t.objectStore('files').delete(ch.fileId);
+    for (const ch of book.chapters) {
+      if (ch.fileId) t.objectStore('files').delete(ch.fileId);
+      if (ch.textFileId) t.objectStore('files').delete(ch.textFileId);
+    }
     if (book.coverId) t.objectStore('files').delete(book.coverId);
     return new Promise((resolve, reject) => {
       t.oncomplete = resolve;
@@ -119,11 +122,16 @@ function prettyName(fileName) {
   return fileName.replace(/\.[^.]+$/, '').replace(/[_]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-function colorFor(text) {
+function hueOf(text) {
   let hash = 0;
   for (const c of text) hash = (hash * 31 + c.codePointAt(0)) | 0;
-  const hue = Math.abs(hash) % 360;
-  return `linear-gradient(135deg, hsl(${hue} 45% 42%), hsl(${(hue + 40) % 360} 50% 30%))`;
+  return Math.abs(hash) % 360;
+}
+
+// A cover for books without one: a deep gradient in a colour made from the title.
+function colorFor(text) {
+  const hue = hueOf(text);
+  return `linear-gradient(150deg, hsl(${hue} 55% 46%), hsl(${(hue + 35) % 360} 60% 22%))`;
 }
 
 function initialOf(text) {
@@ -222,18 +230,21 @@ async function importBook(dir, files, audioFiles) {
 
   // Use the chapter order from book.json when there is one, otherwise sort by file name.
   const byName = new Map(audioFiles.map(f => [f.name, f]));
+  const allByName = new Map(files.map(f => [f.name, f]));
+  // A chapter's text for reading along: named in book.json, or a .json file with the audio file's name.
+  const textFor = (file, name) => allByName.get(name) || allByName.get(file.name.replace(/\.[^.]+$/, '.json')) || null;
   let ordered = [];
   if (Array.isArray(manifest.chapters)) {
     for (const ch of manifest.chapters) {
       const file = byName.get(ch.file);
       if (file) {
-        ordered.push({ file, title: ch.title });
+        ordered.push({ file, title: ch.title, text: textFor(file, ch.text) });
         byName.delete(ch.file);
       }
     }
   }
   const rest = [...byName.values()].sort((a, b) => naturalCompare(a.name, b.name));
-  ordered = ordered.concat(rest.map(file => ({ file, title: null })));
+  ordered = ordered.concat(rest.map(file => ({ file, title: null, text: textFor(file) })));
 
   const folderName = dir ? dir.split('/').pop() : '';
   const fallbackTitle = folderName || (ordered.length === 1 ? prettyName(ordered[0].file.name) : 'New audiobook');
@@ -250,13 +261,18 @@ async function importBook(dir, files, audioFiles) {
     lastPlayedAt: 0,
   };
 
-  for (const { file, title } of ordered) {
+  for (const { file, title, text } of ordered) {
     const fileId = newId();
     await db.putFile({ id: fileId, blob: file });
     const url = URL.createObjectURL(file);
     const duration = await readDuration(url);
     URL.revokeObjectURL(url);
-    book.chapters.push({ title: title || prettyName(file.name), fileId, duration });
+    const chapter = { title: title || prettyName(file.name), fileId, duration };
+    if (text) {
+      chapter.textFileId = newId();
+      await db.putFile({ id: chapter.textFileId, blob: text });
+    }
+    book.chapters.push(chapter);
   }
 
   const cover = files.find(f => COVER_NAME.test(f.name)) || files.find(f => f.type.startsWith('image/'));
@@ -298,6 +314,7 @@ async function loadPublishedBooks() {
       chapters: entry.chapters.map(ch => ({
         title: ch.title,
         url: base + encodeURIComponent(ch.file),
+        textUrl: ch.text ? base + encodeURIComponent(ch.text) : null,
         duration: ch.duration || 0,
       })),
     });
@@ -330,14 +347,34 @@ async function itemsFromDrop(dataTransfer) {
 
 // ---------- Library view ----------
 
+const SORT_KEY = 'audio-book.sort';
+const SORTS = {
+  recent: (a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0) || b.addedAt - a.addedAt,
+  added: (a, b) => b.addedAt - a.addedAt,
+  title: (a, b) => naturalCompare(a.title, b.title),
+  author: (a, b) => naturalCompare(a.author || '~', b.author || '~') || naturalCompare(a.title, b.title),
+};
+
+function playIcon() {
+  const span = document.createElement('span');
+  span.className = 'cover-play';
+  span.setAttribute('aria-hidden', 'true');
+  span.innerHTML = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
+  return span;
+}
+
+let libraryRenders = 0;
 async function renderLibrary() {
-  const books = await db.allBooks();
-  books.sort((a, b) => (b.lastPlayedAt || 0) - (a.lastPlayedAt || 0) || b.addedAt - a.addedAt);
+  // Two redraws can overlap (start-up and the desktop app's folder scan): only the newest one is shown.
+  const token = ++libraryRenders;
+  renderStats();
+  const all = await db.allBooks();
+  const query = $('lib-search').value.trim().toLowerCase();
+  const books = all
+    .filter(b => !query || `${b.title} ${b.author || ''}`.toLowerCase().includes(query))
+    .sort(SORTS[$('lib-sort').value] || SORTS.recent);
 
-  $('empty').hidden = books.length > 0;
-  const list = $('books');
-  list.replaceChildren();
-
+  const items = [];
   for (const book of books) {
     const total = totalDuration(book);
     const listened = listenedSeconds(book);
@@ -350,62 +387,76 @@ async function renderLibrary() {
     const open = document.createElement('button');
     open.type = 'button';
     open.className = 'book-open';
+    open.setAttribute('aria-label', `Open ${book.title}`);
     open.addEventListener('click', () => openBook(book.id));
 
-    const url = await coverUrl(book);
-    let thumb;
-    if (url) {
-      thumb = document.createElement('img');
-      thumb.className = 'thumb';
-      thumb.alt = '';
-      thumb.src = url;
-    } else {
-      thumb = document.createElement('div');
-      thumb.className = 'thumb fallback';
-      thumb.style.background = colorFor(book.title);
-      thumb.textContent = initialOf(book.title);
-    }
+    const cover = document.createElement('span');
+    cover.className = 'thumb';
+    await showCover(cover, book);
+    cover.append(playIcon());
 
-    const info = document.createElement('div');
+    const info = document.createElement('span');
     info.className = 'book-info';
     const title = document.createElement('span');
     title.className = 'title';
     title.textContent = book.title;
     const meta = document.createElement('span');
-    meta.className = 'meta muted';
+    meta.className = 'meta';
     const ready = book.chapters.filter(ch => ch.fileId || ch.url).length;
     meta.textContent = book.making
       ? `Making audio: ${ready} of ${book.chapters.length} chapters`
       : book.finished
-      ? 'Finished'
-      : listened > 0
-        ? `${formatLong(Math.max(0, total - listened))} left`
-        : [book.author, total ? formatLong(total) : ''].filter(Boolean).join(' · ');
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    const fill = document.createElement('div');
-    fill.style.width = `${book.making ? (ready / book.chapters.length) * 100 : pct}%`;
-    if (book.making) bar.classList.add('making');
-    bar.append(fill);
-    info.append(title, meta, bar);
-    open.append(thumb, info);
+        ? 'Finished'
+        : listened > 0
+          ? `${formatLong(Math.max(0, total - listened))} left`
+          : [book.author, total ? formatLong(total) : ''].filter(Boolean).join(' · ');
+    info.append(title, meta);
+    if (listened > 0 || book.making) {
+      const bar = document.createElement('span');
+      bar.className = 'bar';
+      const fill = document.createElement('span');
+      fill.style.width = `${book.making ? (ready / book.chapters.length) * 100 : pct}%`;
+      if (book.making) bar.classList.add('making');
+      bar.append(fill);
+      info.append(bar);
+    }
+    open.append(cover, info);
 
+    // Less common actions sit in a "more" menu, so the shelf stays calm.
+    const menu = document.createElement('details');
+    menu.className = 'card-menu';
+    const summary = document.createElement('summary');
+    summary.setAttribute('aria-label', `More for ${book.title}`);
+    summary.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm7 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4zm7 0a2 2 0 1 1 0 4 2 2 0 0 1 0-4z"/></svg>';
     const actions = document.createElement('div');
-    actions.className = 'book-actions';
+    actions.className = 'menu';
     const action = (label, handler, className = '') => {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.textContent = label;
       btn.className = className;
-      btn.addEventListener('click', handler);
+      btn.addEventListener('click', () => {
+        menu.open = false;
+        handler();
+      });
       actions.append(btn);
     };
-    if (book.making && !Converter.isMaking(book.id)) action('Continue making', () => Converter.resume(book.id), 'strong');
-    if (!book.published && ready) action('Download', () => downloadBook(book.id));
+    if (!book.published && !book.onDisk && ready) action('Download MP3 files', () => downloadBook(book.id));
+    // Books in the desktop app play from their folder on disk (desktop.js).
+    if (book.onDisk && window.desktop) action('Show in folder', () => window.desktop.showInFolder(book.path));
     action('Rename', () => renameBook(book.id));
     if (!book.published) action('Remove', () => removeBook(book.id), 'delete');
+    menu.append(summary, actions);
+    card.append(open, menu);
 
-    card.append(open, actions);
+    if (book.making && !Converter.isMaking(book.id)) {
+      const resume = document.createElement('button');
+      resume.type = 'button';
+      resume.className = 'btn primary card-continue';
+      resume.textContent = 'Continue making';
+      resume.addEventListener('click', () => Converter.resume(book.id));
+      card.append(resume);
+    }
     if (book.published) {
       const badge = document.createElement('span');
       badge.className = 'badge';
@@ -413,8 +464,64 @@ async function renderLibrary() {
       card.append(badge);
     }
     li.append(card);
-    list.append(li);
+    items.push(li);
   }
+  const hero = await renderContinue(all);
+  if (token !== libraryRenders) return;
+  $('empty').hidden = all.length > 0;
+  $('lib-tools').hidden = all.length < 2;
+  $('no-match').hidden = !all.length || books.length > 0;
+  $('continue').replaceChildren(...hero);
+  $('continue').hidden = !hero.length;
+  $('books').replaceChildren(...items);
+}
+
+// The book you're in the middle of, big, in its own colours, with a Resume button.
+async function renderContinue(all) {
+  const book = [...all]
+    .filter(b => b.lastPlayedAt && !b.finished && !b.making && b.chapters.length)
+    .sort(SORTS.recent)[0];
+  if (!book) return [];
+  const total = totalDuration(book);
+  const listened = listenedSeconds(book);
+  const chapter = book.chapters[Math.min(book.position?.chapter || 0, book.chapters.length - 1)];
+  applyTone($('continue'), await toneOf(book));
+
+  const cover = document.createElement('button');
+  cover.type = 'button';
+  cover.className = 'hero-cover';
+  cover.setAttribute('aria-label', `Open ${book.title}`);
+  await showCover(cover, book);
+  cover.addEventListener('click', () => openBook(book.id));
+
+  const info = document.createElement('div');
+  info.className = 'hero-info';
+  const eyebrow = document.createElement('span');
+  eyebrow.className = 'eyebrow';
+  eyebrow.textContent = 'Continue listening';
+  const title = document.createElement('h3');
+  title.textContent = book.title;
+  const author = document.createElement('p');
+  author.className = 'hero-author';
+  author.textContent = book.author || '';
+  const meta = document.createElement('p');
+  meta.className = 'hero-meta';
+  meta.textContent = [chapter?.title, total ? `${formatLong(Math.max(0, total - listened) / (book.rate || 1))} left` : ''].filter(Boolean).join(' · ');
+  const bar = document.createElement('div');
+  bar.className = 'bar';
+  const fill = document.createElement('div');
+  fill.style.width = `${total ? Math.min(100, (listened / total) * 100) : 0}%`;
+  bar.append(fill);
+  const resume = document.createElement('button');
+  resume.type = 'button';
+  resume.className = 'btn hero-play';
+  resume.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg> Resume';
+  resume.addEventListener('click', async () => {
+    await openBook(book.id);
+    play();
+  });
+  info.append(eyebrow, title, author, meta, bar, resume);
+  return [cover, info];
 }
 
 async function renameBook(id) {
@@ -425,6 +532,7 @@ async function renameBook(id) {
   const book = await db.updateBook(id, b => {
     b.title = title.trim() || b.title;
     if (author !== null) b.author = author.trim();
+    b.renamed = true; // keep the new name when the desktop app reads the folder again
   });
   if (current?.id === id) {
     current.title = book.title;
@@ -449,7 +557,13 @@ async function downloadBook(id) {
     const ext = (rec.blob.name || '').match(/\.[a-z0-9]+$/i)?.[0] || '.mp3';
     const file = `${String(i + 1).padStart(width, '0')} - ${safeFileName(ch.title)}${ext}`;
     folder.file(file, rec.blob, { compression: 'STORE' });
-    chapters.push({ title: ch.title, file, duration: ch.duration || 0 });
+    const entry = { title: ch.title, file, duration: ch.duration || 0 };
+    const textRec = ch.textFileId && (await db.getFile(ch.textFileId));
+    if (textRec) {
+      entry.text = file.replace(/\.[^.]+$/, '.json');
+      folder.file(entry.text, textRec.blob);
+    }
+    chapters.push(entry);
   }
   let cover = null;
   if (book.coverId) {
@@ -473,7 +587,10 @@ async function downloadBook(id) {
 
 async function removeBook(id) {
   const book = await db.getBook(id);
-  if (!confirm(`Remove "${book.title}" from this device? This can't be undone.`)) return;
+  const question = book.onDisk
+    ? `Remove "${book.title}" from the library? Its files stay on your computer.`
+    : `Remove "${book.title}" from this device? This can't be undone.`;
+  if (!confirm(question)) return;
   Converter.stop(id);
   if (current?.id === id) closeBook();
   if (book.coverId && coverUrls.has(book.coverId)) {
@@ -481,6 +598,7 @@ async function removeBook(id) {
     coverUrls.delete(book.coverId);
   }
   await db.deleteBook(book);
+  document.dispatchEvent(new CustomEvent('book-removed', { detail: book.id }));
   toast('Book removed.');
   await renderLibrary();
 }
@@ -494,14 +612,124 @@ let lastSave = 0;
 let seeking = false;
 let waitingForChapter = null; // chapter to play as soon as it has been made
 let lastTab = 'library';
+let pausedAt = null; // when playback was paused, for smart rewind
+const VIEW_KEY = 'audio-book.view';
+const textCache = new Map(); // chapter timing files of the open book, by chapter index
+
+// The chapter's text and timings for reading along (its timing file), or null if it has none.
+async function chapterText(index) {
+  if (!current) return null;
+  const key = `${current.id}:${index}`;
+  if (!textCache.has(key)) {
+    const ch = current.chapters[index];
+    textCache.set(key, (async () => {
+      try {
+        if (ch?.textFileId) return JSON.parse(await (await db.getFile(ch.textFileId)).blob.text());
+        if (ch?.textUrl) {
+          const res = await fetch(ch.textUrl);
+          return res.ok ? await res.json() : null;
+        }
+      } catch {
+        // A damaged or missing file: the chapter can still be listened to.
+      }
+      return null;
+    })());
+  }
+  return textCache.get(key);
+}
+
+async function showChapterText(index) {
+  const data = await chapterText(index);
+  if (!current || current.position.chapter !== index) return;
+  const ch = current.chapters[index];
+  Reader.show(data, ch.duration || chapterLength(), ch.title);
+  $('view-read').classList.toggle('no-text', !data);
+}
+
+// A chapter is usually a whole audio file, but can also be part of one: an M4B audiobook keeps all its
+// chapters in one file, with { start, end } in seconds. Times in the player are within the chapter.
+function chapterStart() {
+  return current?.chapters[current.position.chapter]?.start || 0;
+}
+
+function chapterTime() {
+  return Math.max(0, (audio.currentTime || 0) - chapterStart());
+}
+
+function chapterLength() {
+  const ch = current?.chapters[current.position.chapter];
+  if (ch?.end) return ch.end - (ch.start || 0);
+  return Number.isFinite(audio.duration) ? Math.max(0, audio.duration - (ch?.start || 0)) : 0;
+}
+
+// Moves to `time` in the current chapter, e.g. after a click on a word.
+function seekTo(time) {
+  if (!Number.isFinite(time)) return;
+  pausedAt = null;
+  audio.currentTime = chapterStart() + Math.max(0, time);
+  Reader.sync(chapterTime());
+}
+
+// Moves to a spot anywhere in the book (search results, bookmarks).
+function jumpTo(chapter, time) {
+  if (!current) return;
+  if (chapter === current.position.chapter && audio.src) seekTo(time);
+  else loadChapter(chapter, time, !audio.paused);
+}
+
+function isReading() {
+  return $('player').classList.contains('reading');
+}
+
+// The player's side panel shows one of: 'read' (read along), 'chapters' or 'marks' (bookmarks and quotes).
+let panel = 'chapters';
+function setPanel(tab) {
+  panel = tab;
+  const reading = tab === 'read';
+  $('player').classList.toggle('reading', reading);
+  $('reader').hidden = !reading;
+  $('chapters').hidden = tab !== 'chapters';
+  $('marks').hidden = tab !== 'marks';
+  $('view-read').setAttribute('aria-pressed', String(reading));
+  $('tab-chapters').setAttribute('aria-pressed', String(tab === 'chapters'));
+  $('tab-marks').setAttribute('aria-pressed', String(tab === 'marks'));
+  try {
+    localStorage.setItem(VIEW_KEY, tab);
+  } catch {
+    // Not remembered in private browsing.
+  }
+  if (!reading) setFocus(false);
+  if (reading && current) {
+    Reader.sync(chapterTime(), true);
+    Reader.follow();
+    Reader.loop();
+  }
+}
+
+function setReading(on) {
+  setPanel(on ? 'read' : panel === 'read' ? 'chapters' : panel);
+}
+
+function showList(which) {
+  setPanel(which);
+}
+
+// Focus: only the text, with the player bar at the bottom.
+function setFocus(on) {
+  $('player').classList.toggle('focus', on);
+  $('focus-toggle').setAttribute('aria-pressed', String(on));
+  updateNowPlaying();
+  if (on) Reader.follow();
+}
+
+const VIEW_TITLES = { library: 'Library', convert: 'Make audiobook', player: 'Now playing' };
 
 function showView(view) {
   const inPlayer = view === 'player';
   if (!inPlayer) lastTab = view;
   for (const name of ['library', 'convert', 'player']) $(name).hidden = name !== view;
   $('back').hidden = !inPlayer;
-  $('tabs').hidden = inPlayer;
-  $('heading').textContent = inPlayer ? 'Now playing' : 'Audio Book';
+  $('heading').textContent = VIEW_TITLES[view];
   for (const tab of document.querySelectorAll('#tabs button')) {
     if (tab.dataset.view === view) tab.setAttribute('aria-current', 'page');
     else tab.removeAttribute('aria-current');
@@ -542,12 +770,23 @@ async function openBook(id) {
     book.finished = false;
     book.position = { chapter: 0, time: 0 };
   }
+  textCache.clear();
+  Reader.clear();
   renderPlayerHeader();
   renderChapters();
+  renderMarks();
   showView('player');
+  let view = 'chapters';
+  try {
+    view = localStorage.getItem(VIEW_KEY) || 'chapters';
+  } catch {
+    // Private browsing: start with the chapters.
+  }
+  setPanel(['read', 'chapters', 'marks'].includes(view) ? view : 'chapters');
   history.pushState({ view: 'player' }, '');
   const pos = book.position || { chapter: 0, time: 0 };
   await loadChapter(Math.min(pos.chapter, book.chapters.length - 1), pos.time, false);
+  pausedAt = book.lastPlayedAt || null; // so smart rewind steps back a little after a long break
 }
 
 function closeBook() {
@@ -579,6 +818,40 @@ async function renderPlayerHeader() {
     fallback.textContent = initialOf(current.title);
   }
   showRate();
+  const book = current;
+  const tone = await toneOf(book);
+  if (current === book) applyTone(document.documentElement, tone); // the player and the bar take the book's colour
+}
+
+// The whole book as one line, with a mark where each chapter starts. Click to jump anywhere.
+function renderTimeline() {
+  const line = $('book-timeline');
+  for (const tick of line.querySelectorAll('.tick')) tick.remove();
+  const total = totalDuration(current);
+  if (!total) return;
+  let at = 0;
+  current.chapters.forEach((ch, i) => {
+    if (i > 0) {
+      const tick = document.createElement('span');
+      tick.className = 'tick';
+      tick.style.left = `${(at / total) * 100}%`;
+      line.append(tick);
+    }
+    at += ch.duration || 0;
+  });
+}
+
+function jumpToBookFraction(fraction) {
+  if (!current) return;
+  let target = fraction * totalDuration(current);
+  for (let i = 0; i < current.chapters.length; i++) {
+    const length = current.chapters[i].duration || 0;
+    if (target < length || i === current.chapters.length - 1) {
+      jumpTo(i, Math.max(0, Math.min(target, length - 1)));
+      return;
+    }
+    target -= length;
+  }
 }
 
 function renderChapters() {
@@ -609,6 +882,7 @@ function renderChapters() {
     list.append(li);
   });
   highlightChapter();
+  renderTimeline();
 }
 
 function highlightChapter() {
@@ -625,6 +899,7 @@ async function loadChapter(index, startAt = 0, autoplay = false) {
   if (!current || index < 0 || index >= current.chapters.length) return;
   const token = ++loadToken;
   const ch = current.chapters[index];
+  pausedAt = null;
 
   let src = ch.url;
   if (!src && !ch.fileId) {
@@ -645,11 +920,25 @@ async function loadChapter(index, startAt = 0, autoplay = false) {
     chapterUrl = src = URL.createObjectURL(rec.blob);
   }
 
+  // The next chapter of an M4B is in the same file: keep playing, no need to load it again.
+  const sameFile = Boolean(ch.url) && audio.src === new URL(src, location.href).href && audio.readyState > 0;
+
   current.position = { chapter: index, time: startAt };
   current.finished = false;
   $('chapter-title').textContent = ch.title;
   highlightChapter();
   updateNowPlaying();
+
+  if (sameFile) {
+    const target = (ch.start || 0) + startAt;
+    if (Math.abs(audio.currentTime - target) > 0.3) audio.currentTime = target;
+    updateMediaSession();
+    updateTimes();
+    showChapterText(index);
+    if (autoplay && audio.paused) play();
+    await saveProgress();
+    return;
+  }
 
   audio.defaultPlaybackRate = current.rate;
   audio.src = src;
@@ -670,19 +959,38 @@ async function loadChapter(index, startAt = 0, autoplay = false) {
     return;
   }
 
-  if (!ch.duration && Number.isFinite(audio.duration)) {
+  if (!ch.duration && !ch.end && Number.isFinite(audio.duration)) {
     ch.duration = audio.duration;
     renderChapters();
   }
-  if (startAt > 0 && startAt < audio.duration - 1) audio.currentTime = startAt;
+  const target = (ch.start || 0) + startAt;
+  if (target > 0 && target < audio.duration - 1) audio.currentTime = target;
   audio.playbackRate = current.rate;
   updateMediaSession();
   updateTimes();
+  showChapterText(index);
   if (autoplay) play();
   await saveProgress();
 }
 
+// Smart rewind: after a break, start a few seconds back so it's easy to pick up the thread.
+function rewindAfter(pausedMs) {
+  const minutes = pausedMs / 60000;
+  if (minutes >= 60) return 30;
+  if (minutes >= 10) return 15;
+  if (minutes >= 2) return 5;
+  return 0;
+}
+
 function play() {
+  if (pausedAt && current && chapterTime() > 1) {
+    const back = rewindAfter(Date.now() - pausedAt);
+    if (back) {
+      audio.currentTime = chapterStart() + Math.max(0, chapterTime() - back);
+      if (back >= 15) toast(`Went back ${back} seconds to help you pick up the thread.`);
+    }
+  }
+  pausedAt = null;
   audio.play().catch(() => {});
 }
 
@@ -694,7 +1002,8 @@ function togglePlay() {
 
 function skip(seconds) {
   if (!current || !Number.isFinite(audio.duration)) return;
-  const target = audio.currentTime + seconds;
+  pausedAt = null;
+  const target = chapterTime() + seconds;
   if (target < 0 && current.position.chapter > 0) {
     // Going back past the start of a chapter continues into the previous one.
     const prev = current.position.chapter - 1;
@@ -702,7 +1011,7 @@ function skip(seconds) {
     loadChapter(prev, Math.max(0, prevDuration + target), !audio.paused);
     return;
   }
-  audio.currentTime = Math.max(0, Math.min(target, audio.duration - 0.5));
+  seekTo(Math.max(0, Math.min(target, chapterLength() - 0.5)));
 }
 
 function nextChapter(autoplay = !audio.paused) {
@@ -714,8 +1023,8 @@ function nextChapter(autoplay = !audio.paused) {
 function prevChapter() {
   if (!current) return;
   // Like most players: restart the chapter first, then go to the previous one.
-  if (audio.currentTime > 5 || current.position.chapter === 0) {
-    audio.currentTime = 0;
+  if (chapterTime() > 5 || current.position.chapter === 0) {
+    seekTo(0);
   } else {
     loadChapter(current.position.chapter - 1, 0, !audio.paused);
   }
@@ -769,13 +1078,16 @@ function setupSpeedControls() {
 }
 
 function updateTimes() {
-  const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
-  const time = audio.currentTime || 0;
+  const duration = chapterLength();
+  const time = chapterTime();
   const seek = $('seek');
   seek.max = Math.floor(duration);
   if (!seeking) seek.value = Math.floor(time);
   $('elapsed').textContent = formatTime(seeking ? Number(seek.value) : time);
-  $('remaining').textContent = `-${formatTime(duration - (seeking ? Number(seek.value) : time))}`;
+  // Time left in the chapter at the chosen speed, the way you'll actually hear it.
+  const rate = current?.rate || 1;
+  $('remaining').textContent = `-${formatTime((duration - (seeking ? Number(seek.value) : time)) / rate)}`;
+  $('remaining').title = rate === 1 ? 'Time left in this chapter' : `Time left in this chapter at ${formatRate(rate)}`;
 
   if (current) {
     const total = totalDuration(current);
@@ -786,13 +1098,16 @@ function updateTimes() {
     $('book-progress').textContent = total
       ? `Chapter ${current.position.chapter + 1} of ${current.chapters.length} · ${Math.floor(pct)}% · ${formatLong(Math.max(0, total - listened) / rate)} left`
       : `Chapter ${current.position.chapter + 1} of ${current.chapters.length}`;
+    // The player bar: progress through the chapter, and its time left.
+    $('np-fill').style.width = duration ? `${Math.min(100, (time / duration) * 100)}%` : '0';
+    $('np-time').textContent = duration ? `-${formatTime((duration - time) / rate)}` : '';
   }
 }
 
 async function saveProgress() {
   if (!current) return;
   if (audio.src && Number.isFinite(audio.currentTime) && audio.readyState > 0) {
-    current.position.time = audio.currentTime;
+    current.position.time = chapterTime();
   }
   lastSave = Date.now();
   const { position, rate, finished, chapters } = current;
@@ -817,12 +1132,105 @@ function updatePlayState() {
   if ('mediaSession' in navigator) navigator.mediaSession.playbackState = playing ? 'playing' : 'paused';
 }
 
+// The player bar at the bottom: on every page except the full player (and with it in focus mode).
 function updateNowPlaying() {
   const bar = $('now-playing');
-  bar.hidden = !current || !$('player').hidden;
+  const inPlayer = !$('player').hidden;
+  bar.hidden = !current || (inPlayer && !$('player').classList.contains('focus'));
+  document.body.classList.toggle('has-bar', !bar.hidden);
+  $('nav-player').hidden = !current;
   if (!current) return;
   $('np-title').textContent = current.title;
   $('np-chapter').textContent = current.chapters[current.position.chapter]?.title || '';
+  showCover($('np-cover'), current);
+}
+
+// Puts a book's cover into an element: the picture, or its initial on the book's colour.
+async function showCover(el, book) {
+  const url = await coverUrl(book);
+  if (el.dataset.book === book.id && el.dataset.url === String(url)) return;
+  el.dataset.book = book.id;
+  el.dataset.url = String(url);
+  el.replaceChildren();
+  if (url) {
+    const img = document.createElement('img');
+    img.alt = '';
+    img.src = url;
+    el.append(img);
+    el.style.background = '';
+  } else {
+    el.textContent = initialOf(book.title);
+    el.style.background = colorFor(book.title);
+  }
+}
+
+// ---------- Book colours ----------
+
+// The main colour of a book's cover (hue and saturation), so the player can take on the book's mood.
+// Books without a cover use a colour made from their title.
+const tones = new Map();
+async function toneOf(book) {
+  const url = await coverUrl(book);
+  const key = url || `title:${book.title}`;
+  if (!tones.has(key)) {
+    tones.set(key, url ? await toneOfImage(url) : null);
+    if (!tones.get(key)) tones.set(key, { h: hueOf(book.title), s: 42 });
+  }
+  return tones.get(key);
+}
+
+function toneOfImage(url) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onerror = () => resolve(null);
+    img.onload = () => {
+      try {
+        const size = 32;
+        const canvas = document.createElement('canvas');
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(img, 0, 0, size, size);
+        const data = ctx.getImageData(0, 0, size, size).data;
+        // Average the hue of the colourful pixels (as angles, so red at 350° and 10° average to red).
+        let x = 0;
+        let y = 0;
+        let weight = 0;
+        let sat = 0;
+        for (let i = 0; i < data.length; i += 4) {
+          const [r, g, b] = [data[i] / 255, data[i + 1] / 255, data[i + 2] / 255];
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          const l = (max + min) / 2;
+          const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+          if (s < 0.08) continue;
+          let h = 0;
+          if (max === r) h = ((g - b) / (max - min)) % 6;
+          else if (max === g) h = (b - r) / (max - min) + 2;
+          else h = (r - g) / (max - min) + 4;
+          const w = s * (1 - Math.abs(2 * l - 1)); // vivid, mid-light pixels count most
+          x += Math.cos(h * Math.PI / 3) * w;
+          y += Math.sin(h * Math.PI / 3) * w;
+          sat += s * w;
+          weight += w;
+        }
+        if (weight < 2) {
+          resolve({ h: 220, s: 8 }); // a grey or black-and-white cover
+          return;
+        }
+        const h = (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+        resolve({ h: Math.round(h), s: Math.round(Math.min(70, Math.max(18, (sat / weight) * 70))) });
+      } catch {
+        resolve(null); // a cover from another site the browser won't let us read
+      }
+    };
+    img.src = url;
+  });
+}
+
+function applyTone(el, tone) {
+  el.style.setProperty('--tone-h', tone.h);
+  el.style.setProperty('--tone-s', `${tone.s}%`);
 }
 
 async function updateMediaSession() {
@@ -838,12 +1246,13 @@ async function updateMediaSession() {
 
 function updatePositionState() {
   if (!('mediaSession' in navigator) || !navigator.mediaSession.setPositionState) return;
-  if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+  const duration = chapterLength();
+  if (!(duration > 0)) return;
   try {
     navigator.mediaSession.setPositionState({
-      duration: audio.duration,
+      duration,
       playbackRate: audio.playbackRate,
-      position: Math.min(audio.currentTime, audio.duration),
+      position: Math.min(chapterTime(), duration),
     });
   } catch {
     // Some browsers reject position updates while loading.
@@ -855,11 +1264,13 @@ function updatePositionState() {
 let sleepTimer = null;
 let sleepEndsAt = 0;
 let sleepAtChapterEnd = false;
+const SLEEP_FADE = 10; // seconds of fading out before the sleep timer stops playback
 
 function setSleep(value) {
   clearInterval(sleepTimer);
   sleepTimer = null;
   sleepAtChapterEnd = value === 'chapter';
+  audio.volume = 1;
   $('sleep').value = value;
   $('sleep-left').textContent = '';
   const minutes = Number(value);
@@ -868,6 +1279,7 @@ function setSleep(value) {
   const tick = () => {
     const left = Math.max(0, (sleepEndsAt - Date.now()) / 1000);
     $('sleep-left').textContent = formatTime(left);
+    if (!audio.paused) audio.volume = Math.max(0.05, Math.min(1, left / SLEEP_FADE));
     if (left <= 0) {
       audio.pause();
       setSleep('0');
@@ -875,28 +1287,212 @@ function setSleep(value) {
     }
   };
   tick();
-  sleepTimer = setInterval(tick, 1000);
+  sleepTimer = setInterval(tick, 250);
+}
+
+// "Sleep at end of chapter" fades out over the chapter's last seconds.
+function fadeAtChapterEnd() {
+  if (!sleepAtChapterEnd || !(chapterLength() > 0)) return;
+  audio.volume = Math.max(0.05, Math.min(1, (chapterLength() - chapterTime()) / SLEEP_FADE));
+}
+
+// ---------- Bookmarks and quotes ----------
+
+function sortedMarks() {
+  return [...(current?.marks || [])].sort((a, b) => a.chapter - b.chapter || a.time - b.time);
+}
+
+async function saveMarks(change) {
+  change(current.marks ||= []);
+  const marks = current.marks;
+  await db.updateBook(current.id, saved => { saved.marks = marks; });
+  renderMarks();
+}
+
+// kind: 'bookmark' or 'quote'. Called by the Bookmark button, the B key, and the reader's Save quote.
+async function addMark(kind, time = chapterTime(), text = '') {
+  if (!current) return;
+  const mark = {
+    id: newId(),
+    kind,
+    chapter: current.position.chapter,
+    time,
+    text: text || Reader.currentSentence(),
+    note: '',
+    createdAt: Date.now(),
+  };
+  await saveMarks(marks => marks.push(mark));
+  toast(kind === 'quote' ? 'Quote saved under Bookmarks & quotes.' : `Bookmark added at ${formatTime(time)}.`);
+}
+
+function renderMarks() {
+  if (!current) return;
+  const marks = sortedMarks();
+  $('marks-count').textContent = marks.length ? `(${marks.length})` : '';
+  $('marks-empty').hidden = marks.length > 0;
+  $('marks-export').hidden = !marks.length;
+  const list = $('marks-list');
+  list.replaceChildren();
+  for (const mark of marks) {
+    const li = document.createElement('li');
+    li.className = `mark ${mark.kind}`;
+    const open = document.createElement('button');
+    open.type = 'button';
+    open.className = 'mark-open';
+    open.title = 'Play from here';
+    const where = document.createElement('span');
+    where.className = 'mark-where';
+    where.textContent = `${mark.kind === 'quote' ? 'Quote' : 'Bookmark'} · ${current.chapters[mark.chapter]?.title || ''} · ${formatTime(mark.time)}`;
+    open.append(where);
+    if (mark.text) {
+      const text = document.createElement('span');
+      text.className = 'mark-text';
+      text.textContent = mark.kind === 'quote' ? `“${mark.text}”` : mark.text;
+      open.append(text);
+    }
+    if (mark.note) {
+      const note = document.createElement('span');
+      note.className = 'mark-note';
+      note.textContent = mark.note;
+      open.append(note);
+    }
+    open.addEventListener('click', () => jumpTo(mark.chapter, mark.time));
+    const actions = document.createElement('div');
+    actions.className = 'book-actions';
+    const action = (label, handler, className = '') => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.className = className;
+      btn.addEventListener('click', handler);
+      actions.append(btn);
+    };
+    action(mark.note ? 'Edit note' : 'Add note', () => {
+      const note = prompt('Note', mark.note || '');
+      if (note !== null) saveMarks(marks => { marks.find(m => m.id === mark.id).note = note.trim(); });
+    });
+    action('Delete', () => {
+      if (confirm('Delete this ' + (mark.kind === 'quote' ? 'quote?' : 'bookmark?'))) {
+        saveMarks(marks => marks.splice(marks.findIndex(m => m.id === mark.id), 1));
+      }
+    }, 'delete');
+    li.append(open, actions);
+    list.append(li);
+  }
+}
+
+// Saves all bookmarks, quotes and notes of the open book as a plain text file.
+function exportMarks() {
+  const lines = [current.title, current.author || '', ''];
+  for (const mark of sortedMarks()) {
+    lines.push(`${current.chapters[mark.chapter]?.title || `Chapter ${mark.chapter + 1}`} · ${formatTime(mark.time)}`);
+    if (mark.text) lines.push(mark.kind === 'quote' ? `“${mark.text}”` : mark.text);
+    if (mark.note) lines.push(`Note: ${mark.note}`);
+    lines.push('');
+  }
+  const link = document.createElement('a');
+  link.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain' }));
+  link.download = `${safeFileName(current.title)} - bookmarks and quotes.txt`;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+}
+
+// ---------- Listening stats ----------
+
+const STATS_KEY = 'audio-book.stats';
+let lastListenTick = 0;
+let statsSavedAt = 0;
+let stats = { days: {} }; // seconds listened per day, kept in this browser
+try {
+  const saved = JSON.parse(localStorage.getItem(STATS_KEY) || '{}');
+  if (saved.days) stats = saved;
+} catch {
+  // Private browsing: start counting from zero.
+}
+
+function dayKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+// Adds the time since the last call to today's listening time (called while playing).
+function countListening() {
+  const now = Date.now();
+  if (lastListenTick && !audio.paused) {
+    const key = dayKey();
+    stats.days[key] = (stats.days[key] || 0) + Math.min(5, (now - lastListenTick) / 1000);
+    if (now - statsSavedAt > 15000) saveStats();
+  }
+  lastListenTick = audio.paused ? 0 : now;
+}
+
+function saveStats() {
+  statsSavedAt = Date.now();
+  try {
+    localStorage.setItem(STATS_KEY, JSON.stringify(stats));
+  } catch {
+    // Not remembered in private browsing.
+  }
+}
+
+function renderStats() {
+  const day = new Date();
+  const seconds = offset => {
+    const d = new Date(day);
+    d.setDate(d.getDate() - offset);
+    return stats.days[dayKey(d)] || 0;
+  };
+  let week = 0;
+  for (let i = 0; i < 7; i++) week += seconds(i);
+  let streak = 0;
+  for (let i = seconds(0) >= 60 ? 0 : 1; seconds(i) >= 60; i++) streak++;
+  const el = $('stats');
+  el.hidden = week < 60;
+  if (el.hidden) return;
+  const parts = [`Today ${seconds(0) >= 60 ? formatLong(seconds(0)) : '0 min'}`, `last 7 days ${formatLong(week)}`];
+  if (streak >= 2) parts.push(`${streak} days in a row`);
+  el.textContent = `Listening: ${parts.join(' · ')}`;
 }
 
 // ---------- Events ----------
 
 audio.addEventListener('timeupdate', () => {
   if (!current) return;
-  current.position.time = audio.currentTime;
+  current.position.time = chapterTime();
   updateTimes();
   updatePositionState();
+  countListening();
+  fadeAtChapterEnd();
+  Reader.sync(chapterTime()); // also while playing, in case the browser slows Reader.loop() down
   if (Date.now() - lastSave > SAVE_EVERY_MS) saveProgress();
+  // A chapter inside a bigger file (M4B) ends before the file does.
+  const ch = current.chapters[current.position.chapter];
+  if (ch?.end && !audio.paused && current.position.chapter < current.chapters.length - 1 && audio.currentTime >= ch.end - 0.05) {
+    chapterFinished();
+  }
 });
 
-audio.addEventListener('play', updatePlayState);
+audio.addEventListener('play', () => {
+  updatePlayState();
+  lastListenTick = Date.now();
+  Reader.loop();
+});
 audio.addEventListener('pause', () => {
+  pausedAt = Date.now();
+  countListening();
+  saveStats();
   updatePlayState();
   saveProgress();
 });
+audio.addEventListener('seeked', () => Reader.sync(chapterTime()));
 
-audio.addEventListener('ended', () => {
+audio.addEventListener('ended', chapterFinished);
+
+function chapterFinished() {
   if (!current) return;
   if (sleepAtChapterEnd) {
+    audio.pause();
     setSleep('0');
     toast('Sleep timer: stopped at the end of the chapter.');
     if (current.position.chapter < current.chapters.length - 1) {
@@ -911,12 +1507,21 @@ audio.addEventListener('ended', () => {
     saveProgress();
     toast('You finished the book!');
   }
-});
+}
 
 $('play').addEventListener('click', togglePlay);
 $('np-play').addEventListener('click', togglePlay);
+$('np-back').addEventListener('click', () => skip(-SKIP_BACK));
+$('np-forward').addEventListener('click', () => skip(SKIP_FORWARD));
 $('np-open').addEventListener('click', () => {
-  if (current) openBook(current.id);
+  if (!current) return;
+  if (!$('player').hidden) setFocus(false); // in focus mode, the bar brings the full player back
+  else openBook(current.id);
+});
+$('focus-toggle').addEventListener('click', () => setFocus(!$('player').classList.contains('focus')));
+$('book-timeline').addEventListener('click', e => {
+  const box = e.currentTarget.getBoundingClientRect();
+  jumpToBookFraction((e.clientX - box.left) / box.width);
 });
 $('rewind').addEventListener('click', () => skip(-SKIP_BACK));
 $('forward').addEventListener('click', () => skip(SKIP_FORWARD));
@@ -938,9 +1543,17 @@ $('seek').addEventListener('input', () => {
   updateTimes();
 });
 $('seek').addEventListener('change', () => {
-  audio.currentTime = Number($('seek').value);
+  seekTo(Number($('seek').value));
   seeking = false;
 });
+
+$('view-read').addEventListener('click', () => setPanel('read'));
+$('add-bookmark').addEventListener('click', () => addMark('bookmark'));
+$('tab-chapters').addEventListener('click', () => showList('chapters'));
+$('tab-marks').addEventListener('click', () => showList('marks'));
+$('marks-export').addEventListener('click', exportMarks);
+$('show-shortcuts').addEventListener('click', () => $('shortcuts').showModal());
+Reader.setup();
 
 $('back').addEventListener('click', () => {
   if (history.state?.view === 'player') history.back();
@@ -956,10 +1569,33 @@ window.addEventListener('popstate', () => {
 
 for (const tab of document.querySelectorAll('#tabs button')) {
   tab.addEventListener('click', () => {
+    if (tab.dataset.view === 'player') {
+      if (current) openBook(current.id);
+      return;
+    }
     showView(tab.dataset.view);
     if (tab.dataset.view === 'library') renderLibrary();
   });
 }
+
+$('lib-search').addEventListener('input', () => renderLibrary());
+$('lib-sort').addEventListener('change', e => {
+  try {
+    localStorage.setItem(SORT_KEY, e.target.value);
+  } catch {
+    // Not remembered.
+  }
+  renderLibrary();
+});
+try {
+  $('lib-sort').value = localStorage.getItem(SORT_KEY) || 'recent';
+} catch {
+  // Recently played first.
+}
+// Close a book's "more" menu when clicking anywhere else.
+document.addEventListener('click', e => {
+  for (const menu of document.querySelectorAll('.card-menu[open]')) if (!menu.contains(e.target)) menu.open = false;
+});
 
 $('empty-make').addEventListener('click', () => showView('convert'));
 
@@ -998,15 +1634,40 @@ window.addEventListener('drop', async e => {
 });
 
 document.addEventListener('keydown', e => {
-  if (!current || e.target.closest('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey) return;
-  if (e.key === ' ' || e.key === 'k') {
-    if (e.target.closest('button')) return; // let the focused button handle Space
+  if (e.target.closest?.('input, select, textarea') || e.metaKey || e.ctrlKey || e.altKey || $('shortcuts').open) return;
+  if (e.key === '?') {
+    $('shortcuts').showModal();
+    return;
+  }
+  if (!current) return;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  const inPlayer = !$('player').hidden;
+  if (key === ' ' || key === 'k') {
+    if (e.target.closest?.('button')) return; // let the focused button handle Space
     e.preventDefault();
     togglePlay();
-  } else if (e.key === 'ArrowLeft' || e.key === 'j') {
+  } else if (key === 'ArrowLeft' || key === 'j') {
     skip(-SKIP_BACK);
-  } else if (e.key === 'ArrowRight' || e.key === 'l') {
+  } else if (key === 'ArrowRight' || key === 'l') {
     skip(SKIP_FORWARD);
+  } else if (key === 'n') {
+    nextChapter();
+  } else if (key === 'p') {
+    prevChapter();
+  } else if (key === '[' || key === ']') {
+    setRate(Math.min(3, Math.max(0.5, Math.round((current.rate + (key === ']' ? 0.05 : -0.05)) * 100) / 100)));
+    toast(`Speed ${formatRate(current.rate)}`);
+  } else if (key === 'b') {
+    addMark('bookmark');
+  } else if (key === 'r' && inPlayer) {
+    setReading(!isReading());
+  } else if (key === 'f' && inPlayer) {
+    if (!isReading()) setPanel('read');
+    setFocus(!$('player').classList.contains('focus'));
+  } else if (key === '/' && inPlayer) {
+    e.preventDefault();
+    setReading(true);
+    Reader.toggleSearch(true);
   }
 });
 
@@ -1023,7 +1684,7 @@ if ('mediaSession' in navigator) {
     seekforward: d => skip(d.seekOffset || SKIP_FORWARD),
     previoustrack: () => prevChapter(),
     nexttrack: () => nextChapter(),
-    seekto: d => { audio.currentTime = d.seekTime; },
+    seekto: d => seekTo(d.seekTime),
   };
   for (const [action, handler] of Object.entries(handlers)) {
     try {
@@ -1032,6 +1693,29 @@ if ('mediaSession' in navigator) {
       // Action not supported by this browser.
     }
   }
+}
+
+// ---------- Install as an app, and work offline ----------
+
+let installPrompt = null;
+window.addEventListener('beforeinstallprompt', e => {
+  e.preventDefault();
+  installPrompt = e;
+  $('install').hidden = false;
+});
+$('install').addEventListener('click', async () => {
+  if (!installPrompt) return;
+  installPrompt.prompt();
+  await installPrompt.userChoice;
+  installPrompt = null;
+  $('install').hidden = true;
+});
+window.addEventListener('appinstalled', () => { $('install').hidden = true; });
+
+// The service worker keeps a copy of the app so it opens without internet. Browsers only allow it on
+// https:// sites (like GitHub Pages) and on this computer (localhost).
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || ['localhost', '127.0.0.1'].includes(location.hostname))) {
+  navigator.serviceWorker.register('service-worker.js').catch(() => {});
 }
 
 // ---------- Start ----------

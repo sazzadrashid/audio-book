@@ -2,33 +2,84 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Audio Book</title>
-  <meta name="description" content="Turn PDF, EPUB and text books into audiobooks, and listen to them. Everything happens in your browser.">
-  <meta name="theme-color" content="#14161a">
-  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23e8a33d' d='M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z'/%3E%3C/svg%3E">
+  <meta name="description" content="Listen to audiobooks and read along. Turn PDF, EPUB and text books into audiobooks, all in your browser.">
+  <meta name="theme-color" content="#0c0e12">
+  <link rel="icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="preload" href="vendor/inter/inter.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <aside class="sidebar" aria-label="Audio Book">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg></span>
+      <span>Audio Book</span>
+    </div>
+    <nav class="nav" id="tabs" aria-label="Sections">
+      <button type="button" data-view="library" aria-current="page">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 3h3v18H4zm5 0h3v18H9zm5.2 1.1 2.9-.8 4.6 17.4-2.9.8z"/></svg>
+        <span>Library</span>
+      </button>
+      <button type="button" data-view="player" id="nav-player" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10h2v4H3zm4-4h2v12H7zm4-3h2v18h-2zm4 5h2v8h-2zm4 2h2v4h-2z"/></svg>
+        <span>Now playing</span>
+      </button>
+      <button type="button" data-view="convert">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v8h8v2h-8v8h-2v-8H3v-2h8z"/></svg>
+        <span>Make audiobook</span>
+      </button>
+    </nav>
+    <div class="sidebar-foot">
+      <button type="button" id="install" class="side-link" hidden>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 3h2v9.2l3.3-3.3 1.4 1.4L12 16l-5.7-5.7 1.4-1.4 3.3 3.3zM5 19h14v2H5z"/></svg>
+        Install as an app
+      </button>
+      <button type="button" id="show-shortcuts" class="side-link">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 6h18v12H3zm2 2v8h14V8zm1 1h2v2H6zm3 0h2v2H9zm3 0h2v2h-2zm3 0h3v2h-3zM6 12h2v2H6zm3 0h6v2H9zm7 0h2v2h-2z"/></svg>
+        Keyboard shortcuts
+      </button>
+    </div>
+  </aside>
+
   <header class="topbar">
     <button id="back" class="icon-btn" type="button" aria-label="Back to library" hidden>
       <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15.4 7.4 14 6l-6 6 6 6 1.4-1.4L10.8 12z"/></svg>
     </button>
-    <h1 id="heading">Audio Book</h1>
-    <nav class="tabs" id="tabs" aria-label="Sections">
-      <button type="button" data-view="library" aria-current="page">Library</button>
-      <button type="button" data-view="convert">Make audiobook</button>
-    </nav>
+    <h1 id="heading">Library</h1>
   </header>
 
   <main>
     <section id="library" aria-label="Library">
+      <div class="lib-head">
+        <h2 class="page-title">Library</h2>
+        <p id="stats" class="stats" hidden></p>
+      </div>
+      <div id="continue" class="hero toned" hidden></div>
+      <div id="lib-tools" class="lib-tools" hidden>
+        <label class="search-box">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>
+          <input type="search" id="lib-search" placeholder="Search your library" aria-label="Search your library" autocomplete="off">
+        </label>
+        <label class="sort-box">
+          <span class="visually-hidden">Sort by</span>
+          <select id="lib-sort">
+            <option value="recent">Recently played</option>
+            <option value="added">Recently added</option>
+            <option value="title">Title</option>
+            <option value="author">Author</option>
+          </select>
+        </label>
+      </div>
       <div id="empty" class="empty" hidden>
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg>
-        <h2>No audiobooks yet</h2>
+        <span class="empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 0 0-9 9v6a3 3 0 0 0 3 3h2v-8H5v-1a7 7 0 0 1 14 0v1h-3v8h2a3 3 0 0 0 3-3v-6a9 9 0 0 0-9-9z"/></svg></span>
+        <h2>Your shelf is empty</h2>
         <p>Turn a PDF, EPUB or text file into an audiobook, or add audio files you already have.</p>
         <button type="button" id="empty-make" class="btn primary big">Make an audiobook from a book</button>
       </div>
+      <p id="no-match" class="muted no-match" hidden>No books match your search.</p>
       <ul id="books" class="books"></ul>
       <div class="add-row">
         <span class="muted">Already have audiobook files?</span>
@@ -44,6 +95,7 @@
     </section>
 
     <section id="convert" aria-label="Make an audiobook" hidden>
+      <h2 class="page-title">Make an audiobook</h2>
       <div id="cv-pick" class="panel">
         <h2>Turn a book into an audiobook</h2>
         <p>Choose a <strong>PDF</strong>, <strong>EPUB</strong> or <strong>text</strong> file in English. A computer voice reads it aloud and saves it as MP3 audio, one file per chapter.</p>
@@ -117,100 +169,196 @@
       </div>
     </section>
 
-    <section id="player" aria-label="Player" hidden>
-      <div class="cover-wrap">
-        <img id="cover" alt="" hidden>
-        <div id="cover-fallback" class="cover-fallback" aria-hidden="true"></div>
-      </div>
-      <h2 id="book-title" class="book-title"></h2>
-      <p id="book-author" class="muted"></p>
-      <p id="chapter-title" class="chapter-title"></p>
+    <section id="player" class="toned" aria-label="Now playing" hidden>
+      <div class="player-layout">
+        <div class="stage">
+          <div class="cover-wrap">
+            <img id="cover" alt="" hidden>
+            <div id="cover-fallback" class="cover-fallback" aria-hidden="true"></div>
+          </div>
+          <div class="stage-titles">
+            <p id="chapter-title" class="chapter-title"></p>
+            <h2 id="book-title" class="book-title"></h2>
+            <p id="book-author" class="book-author"></p>
+          </div>
 
-      <input type="range" id="seek" min="0" max="0" step="1" value="0" aria-label="Position in chapter">
-      <div class="times"><span id="elapsed">0:00</span><span id="remaining">-0:00</span></div>
+          <div class="scrub">
+            <input type="range" id="seek" min="0" max="0" step="1" value="0" aria-label="Position in chapter">
+            <div class="times"><span id="elapsed">0:00</span><span id="remaining">-0:00</span></div>
+          </div>
 
-      <div class="controls">
-        <button id="prev" class="icon-btn" type="button" aria-label="Previous chapter">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
-        </button>
-        <button id="rewind" class="icon-btn skip" type="button" aria-label="Back 15 seconds">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
-          <span>15</span>
-        </button>
-        <button id="play" class="play-btn" type="button" aria-label="Play">
-          <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-          <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
-        </button>
-        <button id="forward" class="icon-btn skip" type="button" aria-label="Forward 30 seconds">
-          <svg viewBox="0 0 24 24" aria-hidden="true" class="mirror"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
-          <span>30</span>
-        </button>
-        <button id="next" class="icon-btn" type="button" aria-label="Next chapter">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
-        </button>
-      </div>
+          <div class="controls">
+            <button id="prev" class="icon-btn" type="button" aria-label="Previous chapter">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h2v12H6zm3.5 6 8.5 6V6z"/></svg>
+            </button>
+            <button id="rewind" class="icon-btn skip" type="button" aria-label="Back 15 seconds">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+              <span>15</span>
+            </button>
+            <button id="play" class="play-btn" type="button" aria-label="Play">
+              <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+              <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+            </button>
+            <button id="forward" class="icon-btn skip" type="button" aria-label="Forward 30 seconds">
+              <svg viewBox="0 0 24 24" aria-hidden="true" class="mirror"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+              <span>30</span>
+            </button>
+            <button id="next" class="icon-btn" type="button" aria-label="Next chapter">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 6h2v12h-2zM6 18l8.5-6L6 6z"/></svg>
+            </button>
+          </div>
 
-      <div class="options">
-        <div class="speed-wrap">
-          <button id="speed" class="btn" type="button" aria-label="Playback speed" aria-expanded="false" aria-controls="speed-panel">1×</button>
-          <div id="speed-panel" class="speed-panel" hidden>
-            <label for="speed-range">Speed <output id="speed-value" class="speed-value">1×</output></label>
-            <div class="speed-row">
-              <button type="button" class="step-btn" data-for="speed-range" data-step="-0.05" aria-label="Slower">−</button>
-              <input type="range" id="speed-range" min="0.5" max="3" step="0.05" value="1">
-              <button type="button" class="step-btn" data-for="speed-range" data-step="0.05" aria-label="Faster">+</button>
+          <div class="options">
+            <div class="speed-wrap">
+              <button id="speed" class="chip" type="button" aria-label="Playback speed" aria-expanded="false" aria-controls="speed-panel">1×</button>
+              <div id="speed-panel" class="speed-panel" hidden>
+                <label for="speed-range">Speed <output id="speed-value" class="speed-value">1×</output></label>
+                <div class="speed-row">
+                  <button type="button" class="step-btn" data-for="speed-range" data-step="-0.05" aria-label="Slower">−</button>
+                  <input type="range" id="speed-range" min="0.5" max="3" step="0.05" value="1">
+                  <button type="button" class="step-btn" data-for="speed-range" data-step="0.05" aria-label="Faster">+</button>
+                </div>
+                <div class="speed-presets" data-for="speed-range">
+                  <button type="button" data-rate="0.75">0.75×</button>
+                  <button type="button" data-rate="1">1×</button>
+                  <button type="button" data-rate="1.25">1.25×</button>
+                  <button type="button" data-rate="1.5">1.5×</button>
+                  <button type="button" data-rate="2">2×</button>
+                </div>
+              </div>
             </div>
-            <div class="speed-presets" data-for="speed-range">
-              <button type="button" data-rate="0.75">0.75×</button>
-              <button type="button" data-rate="1">1×</button>
-              <button type="button" data-rate="1.25">1.25×</button>
-              <button type="button" data-rate="1.5">1.5×</button>
-              <button type="button" data-rate="2">2×</button>
+            <label class="chip sleep">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12.3 2.1A10 10 0 1 0 21.9 11.7 7.5 7.5 0 0 1 12.3 2.1z"/></svg>
+              <span class="visually-hidden">Sleep timer</span>
+              <select id="sleep">
+                <option value="0">Sleep: off</option>
+                <option value="5">5 min</option>
+                <option value="15">15 min</option>
+                <option value="30">30 min</option>
+                <option value="45">45 min</option>
+                <option value="60">60 min</option>
+                <option value="90">90 min</option>
+                <option value="chapter">End of chapter</option>
+              </select>
+              <span id="sleep-left"></span>
+            </label>
+            <button id="add-bookmark" class="chip" type="button" title="Bookmark this spot (B)" aria-label="Bookmark this spot">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+              <span class="btn-label">Bookmark</span>
+            </button>
+          </div>
+
+          <div class="book-progress">
+            <div id="book-timeline" class="book-timeline" title="The whole book: click to jump">
+              <div id="book-progress-fill"></div>
             </div>
+            <p id="book-progress"></p>
           </div>
         </div>
-        <label class="sleep">
-          <span class="visually-hidden">Sleep timer</span>
-          <select id="sleep">
-            <option value="0">Sleep timer: off</option>
-            <option value="5">Sleep in 5 min</option>
-            <option value="15">Sleep in 15 min</option>
-            <option value="30">Sleep in 30 min</option>
-            <option value="45">Sleep in 45 min</option>
-            <option value="60">Sleep in 60 min</option>
-            <option value="chapter">Sleep at end of chapter</option>
-          </select>
-        </label>
-        <span id="sleep-left" class="muted"></span>
-      </div>
 
-      <div class="book-progress">
-        <div class="bar"><div id="book-progress-fill"></div></div>
-        <p id="book-progress" class="muted"></p>
-      </div>
+        <div class="side">
+          <div class="side-tabs" role="group" aria-label="Show">
+            <button type="button" id="view-read" aria-pressed="false">Read along</button>
+            <button type="button" id="tab-chapters" aria-pressed="true">Chapters</button>
+            <button type="button" id="tab-marks" aria-pressed="false">Bookmarks <span id="marks-count"></span></button>
+          </div>
 
-      <h3 class="section-label">Chapters</h3>
-      <ol id="chapters" class="chapters"></ol>
+          <ol id="chapters" class="list"></ol>
+          <div id="marks" class="marks" hidden>
+            <p id="marks-empty" class="muted small">Press <strong>Bookmark</strong> to mark a spot, or select some text while reading along and press <strong>Save quote</strong>.</p>
+            <ol id="marks-list" class="list"></ol>
+            <button type="button" id="marks-export" class="btn" hidden>Save all as a text file</button>
+          </div>
+
+          <div id="reader" class="reader" data-theme="auto" data-font="sans" hidden>
+            <div class="reader-bar">
+              <span id="reader-chapter" class="reader-chapter"></span>
+              <button type="button" id="search-open" class="icon-btn" aria-label="Search the book (/)" aria-expanded="false" aria-controls="search-panel">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 3a7 7 0 0 1 5.6 11.2l5.1 5.1-1.4 1.4-5.1-5.1A7 7 0 1 1 10 3zm0 2a5 5 0 1 0 0 10 5 5 0 0 0 0-10z"/></svg>
+              </button>
+              <button type="button" id="settings-open" class="icon-btn text-btn" aria-label="Text settings" aria-expanded="false" aria-controls="text-settings">Aa</button>
+              <button type="button" id="focus-toggle" class="icon-btn" aria-label="Focus on the text" aria-pressed="false" title="Focus on the text (F)">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3h7v2H5v5H3zm11 0h7v7h-2V5h-5zM3 14h2v5h5v2H3zm16 0h2v7h-7v-2h5z"/></svg>
+              </button>
+            </div>
+            <div id="search-panel" class="reader-panel" hidden>
+              <input id="search-input" type="search" placeholder="Search this book" aria-label="Search this book" autocomplete="off">
+              <p id="search-status" class="muted small" role="status"></p>
+              <ol id="search-results" class="search-results"></ol>
+            </div>
+            <div id="text-settings" class="reader-panel settings-grid" hidden>
+              <span>Text size</span>
+              <div class="seg"><button type="button" data-size="-0.1" aria-label="Smaller text">A−</button><output id="size-value"></output><button type="button" data-size="0.1" aria-label="Bigger text">A+</button></div>
+              <span>Line spacing</span>
+              <div class="seg" data-setting="spacing"><button type="button" data-value="1.5">Tight</button><button type="button" data-value="1.75">Normal</button><button type="button" data-value="2.1">Wide</button></div>
+              <span>Font</span>
+              <div class="seg" data-setting="font"><button type="button" data-value="sans">Sans</button><button type="button" data-value="serif">Serif</button><button type="button" data-value="easy" title="OpenDyslexic, made for readers with dyslexia">Easy read</button></div>
+              <span>Colours</span>
+              <div class="seg" data-setting="theme"><button type="button" data-value="auto" title="Takes its colours from the book's cover">Book</button><button type="button" data-value="light">Light</button><button type="button" data-value="sepia">Sepia</button><button type="button" data-value="dark">Dark</button></div>
+            </div>
+            <div class="reader-scroll" id="reader-scroll">
+              <article id="reader-text" class="reader-text" aria-label="Chapter text"></article>
+            </div>
+            <button type="button" id="follow" class="follow-btn" hidden>Back to where I’m listening</button>
+            <button type="button" id="save-quote" class="quote-btn" hidden>Save quote</button>
+          </div>
+        </div>
+      </div>
     </section>
   </main>
 
-  <div id="now-playing" class="now-playing" hidden>
-    <button id="np-open" class="np-text" type="button" aria-label="Open the player">
-      <span id="np-title" class="np-title"></span>
-      <span id="np-chapter" class="muted"></span>
+  <div id="now-playing" class="np-bar toned" hidden>
+    <div class="np-progress" aria-hidden="true"><div id="np-fill"></div></div>
+    <button id="np-open" class="np-book" type="button" aria-label="Open the player">
+      <span class="np-cover" id="np-cover" aria-hidden="true"></span>
+      <span class="np-text">
+        <span id="np-title" class="np-title"></span>
+        <span id="np-chapter" class="np-chapter"></span>
+      </span>
     </button>
-    <button id="np-play" class="np-play" type="button" aria-label="Play">
-      <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
-      <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
-    </button>
+    <div class="np-controls">
+      <button id="np-back" class="icon-btn skip" type="button" aria-label="Back 15 seconds">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+        <span>15</span>
+      </button>
+      <button id="np-play" class="np-play" type="button" aria-label="Play">
+        <svg class="icon-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+        <svg class="icon-pause" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 5h4v14H6zm8 0h4v14h-4z"/></svg>
+      </button>
+      <button id="np-forward" class="icon-btn skip" type="button" aria-label="Forward 30 seconds">
+        <svg viewBox="0 0 24 24" aria-hidden="true" class="mirror"><path d="M12 5V1L7 6l5 5V7a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8z"/></svg>
+        <span>30</span>
+      </button>
+    </div>
+    <span id="np-time" class="np-time"></span>
   </div>
+
+  <dialog id="shortcuts" class="shortcuts">
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <dt>Space or K</dt><dd>Play / pause</dd>
+      <dt>← or J</dt><dd>Back 15 seconds</dd>
+      <dt>→ or L</dt><dd>Forward 30 seconds</dd>
+      <dt>P / N</dt><dd>Previous / next chapter</dd>
+      <dt>[ / ]</dt><dd>Slower / faster</dd>
+      <dt>R</dt><dd>Read along on / off</dd>
+      <dt>F</dt><dd>Focus on the text</dd>
+      <dt>B</dt><dd>Bookmark this spot</dd>
+      <dt>/</dt><dd>Search the book</dd>
+      <dt>?</dt><dd>This list</dd>
+    </dl>
+    <form method="dialog"><button class="btn primary">Close</button></form>
+  </dialog>
 
   <div id="drop-hint" class="drop-hint" hidden><p>Drop to add to your library</p></div>
   <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <audio id="audio" preload="metadata"></audio>
   <script src="vendor/jszip/jszip.min.js"></script>
   <script src="book-text.js"></script>
+  <script src="read-along.js"></script>
+  <script src="reader.js"></script>
   <script src="app.js"></script>
   <script src="convert.js"></script>
+  <script src="desktop.js"></script>
 </body>
 </html>

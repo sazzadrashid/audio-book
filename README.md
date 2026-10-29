@@ -31,17 +31,29 @@ If you close the page or press **Stop**, the chapters made so far are kept. Pres
 
 ### Listen
 
-The **Library** shows all your books and how much of each is left. The player has:
+The **Library** shows all your books, how much of each is left, and how much you've listened today and this week. The player has:
 
+- **Read along:** press **Read along** to see the book's text while you listen. The sentence being read is highlighted and the word being spoken is marked, and the text scrolls by itself. Tap any word to jump there. If you scroll away, **Back to where I'm listening** takes you back. (Needs a book made with the voice-clone tool, which saves each chapter's text; other audiobooks can only be listened to.)
+- **Text settings** (the **Aa** button): size, line spacing, a serif font or **Easy read** (OpenDyslexic, made for readers with dyslexia), and Light, Sepia or Dark colours
+- **Search** the whole book's text (the 🔍 button) and jump to any result
+- **Bookmarks and quotes:** press **Bookmark** to mark a spot, or select text while reading along and press **Save quote**. Add notes, jump back to them, and save them all as a text file.
 - A chapter list. It moves to the next chapter by itself.
 - Back 15 seconds and forward 30 seconds
-- Any playback speed from 0.5× to 3× (slider, − / + in 0.05 steps, or quick picks)
-- Sleep timer (5–60 minutes, or at the end of the chapter)
+- Any playback speed from 0.5× to 3× (slider, − / + in 0.05 steps, or quick picks). Time left is shown at your speed.
+- **Smart rewind:** after a break of a few minutes or more, it starts a few seconds back so you can pick up the thread
+- Sleep timer (5–90 minutes, or at the end of the chapter), which fades out gently
 - **Remembers where you stopped** in every book
 - Lock-screen and headphone controls on phones
-- Keyboard shortcuts on a computer: <kbd>Space</kbd> play/pause, <kbd>←</kbd> back 15 s, <kbd>→</kbd> forward 30 s
+- Keyboard shortcuts on a computer (press <kbd>?</kbd> to see them all): <kbd>Space</kbd> play/pause, <kbd>←</kbd> / <kbd>→</kbd> back 15 s / forward 30 s, <kbd>N</kbd> / <kbd>P</kbd> next / previous chapter, <kbd>[</kbd> / <kbd>]</kbd> slower / faster, <kbd>R</kbd> read along, <kbd>B</kbd> bookmark, <kbd>/</kbd> search
+- **Install as an app** (the button at the bottom of the Library, on the website or on this computer): it opens in its own window and works without internet
 
-Already have audiobook files (MP3, M4A, M4B)? Use **Add audio files** or **Add a folder** at the bottom of the Library.
+Already have audiobook files (MP3, M4A, M4B)? Use **Add audio files** or **Add a folder** at the bottom of the Library. For a book made with the voice-clone tool, use **Add a folder** and pick the book's folder: its text comes along for reading along.
+
+**Opening the player on this computer:** double-click **`open-player.bat`** (it needs [Node.js](https://nodejs.org), which is free). Keep its black window open while you use it.
+
+### Audio Book Player for Windows
+
+The same player as a program you install, like VLC: double-click an `.m4b` audiobook or right-click a folder to open it, keep your audiobooks in **library folders**, play **M4B audiobooks with their chapters**, use your keyboard's **media keys**, the **taskbar buttons** and a **mini player**. See [desktop/README.md](desktop/README.md).
 
 ### Good to know
 
@@ -92,7 +104,10 @@ Books published this way are **public** on a free GitHub account, so only publis
 ```
 player/                 The website (plain HTML/CSS/JS, no build step)
   index.html, style.css
-  app.js                Library (IndexedDB), player, downloads
+  app.js                Library (IndexedDB), player, bookmarks, stats, downloads
+  reader.js             "Read along" view: text, highlighting, text settings, search, quotes
+  read-along.js         Which sentence/word is spoken when (plain functions, tested with Node)
+  service-worker.js     Keeps a copy of the app so it opens offline; manifest.webmanifest + icons/ to install it
   convert.js            "Make audiobook" page: job queue, worker pool, resume
   book-text.js          PDF/EPUB/TXT text extraction, PDF paragraphs and running headers, chapters
   speech-text.js        Text clean-up for speech, sentence splitting, pauses and pacing
@@ -101,9 +116,12 @@ player/                 The website (plain HTML/CSS/JS, no build step)
   vendor/               ONNX Runtime Web, piper-phonemize, lamejs, PDF.js, JSZip
   books/                Books published with the site (from the CLI converter) + index.json
 converter/audiobook.py  Command-line converter (edge-tts or eSpeak NG)
-tests/                  pytest tests for the command-line converter
+voice-clone/            Audiobooks in a cloned voice on an NVIDIA graphics card (see voice-clone/README.md)
+desktop/                Audio Book Player for Windows (Electron), showing the player above (see desktop/README.md)
+tools/serve-player.js   Local web server with range requests (open-player.bat runs it)
+tests/                  pytest tests for the command-line converter, node tests for speech-text.js and read-along.js
 ```
 
-- Run the website locally: `npx http-server player`. You need a server that supports range requests, or seeking in audio breaks; `python -m http.server` doesn't support them.
+- Run the website locally: `node tools/serve-player.js` (or `npx http-server player`). You need a server that supports range requests, or seeking in audio breaks; `python -m http.server` doesn't support them.
 - Run the tests: `pip install -r converter/requirements.txt pytest && pytest -q` and `node --test tests/*.test.js`
 - Adding a voice: put a Piper `.onnx` and `.onnx.json` in `player/voices/` and add it to `VOICES` in `player/convert.js`.

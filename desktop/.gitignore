@@ -1,0 +1,4 @@
+node_modules/
+dist/
+# Copied from ../player by scripts/copy-player.js before each start or build
+player/

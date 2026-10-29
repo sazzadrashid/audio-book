@@ -1,0 +1,43 @@
+{
+  "name": "audio-book-player",
+  "productName": "Audio Book Player",
+  "version": "1.0.0",
+  "description": "An audiobook player for Windows: read along, chapters, bookmarks, M4B audiobooks.",
+  "author": "sazzadrashid",
+  "private": true,
+  "main": "main.js",
+  "scripts": {
+    "copy-player": "node scripts/copy-player.js",
+    "start": "npm run copy-player && electron .",
+    "dist": "npm run copy-player && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "music-metadata": "12.3.2"
+  },
+  "devDependencies": {
+    "electron": "45.1.0",
+    "electron-builder": "26.18.0"
+  },
+  "build": {
+    "appId": "io.github.sazzadrashid.audiobookplayer",
+    "productName": "Audio Book Player",
+    "executableName": "AudioBookPlayer",
+    "files": ["main.js", "preload.js", "books.js", "player/**/*", "icons/**/*", "package.json"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "win": { "target": "nsis", "icon": "build/icon.ico" },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Audio Book Player",
+      "uninstallDisplayName": "Audio Book Player",
+      "artifactName": "Audio Book Player Setup ${version}.${ext}",
+      "include": "build/installer.nsh"
+    },
+    "fileAssociations": [
+      { "ext": "m4b", "name": "M4B audiobook", "description": "Audiobook", "role": "Viewer", "icon": "build/icon.ico" }
+    ]
+  }
+}

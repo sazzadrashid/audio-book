@@ -1,0 +1,6 @@
+.venv/
+tools/
+models/
+output/
+work/
+settings.json
